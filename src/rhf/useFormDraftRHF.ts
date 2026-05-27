@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import type { UseFormReturn, FieldValues } from 'react-hook-form';
 import type { FormDraftOptions } from '../types';
 import { useFormDraft } from '../useFormDraft';
@@ -32,9 +32,20 @@ export function useFormDraftRHF<T extends FieldValues>(
   // draft.values changes for the first time (storage restore async callback).
   const initialDraftValuesRef = useRef(draft.values);
 
+  // Set by the restore + discard paths right before they call form.reset.
+  // The watch subscriber consumes and clears it, skipping the patch so the
+  // library-initiated reset doesn't round-trip back through the persistence
+  // pipeline (re-storing the just-cleared draft on discard, or echoing the
+  // restored draft back to itself on initial mount).
+  const ignoreNextWatchRef = useRef(false);
+
   // Watch RHF for user changes and patch the draft for persistence.
   useEffect(() => {
     const subscription = form.watch((vals) => {
+      if (ignoreNextWatchRef.current) {
+        ignoreNextWatchRef.current = false;
+        return;
+      }
       draft.patch(vals as Partial<T>);
     });
     return () => subscription.unsubscribe();
@@ -49,9 +60,32 @@ export function useFormDraftRHF<T extends FieldValues>(
     if (hasRestoredRef.current) return;
     if (draft.values === initialDraftValuesRef.current) return;
     hasRestoredRef.current = true;
+    ignoreNextWatchRef.current = true;
     form.reset(draft.values, { keepDefaultValues: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft.values]);
+
+  // Refify the form so `discard` doesn't churn identity across renders. RHF's
+  // `UseFormReturn` is stable in practice but the ref makes the wrapper safe
+  // regardless of consumer wiring.
+  const formRef = useRef(form);
+  formRef.current = form;
+
+  // Wrap discard so the visible RHF form also clears. Without this, the
+  // underlying draft.discard() empties storage but form.values still shows
+  // the user's text — and the next keystroke would re-persist that stale
+  // text back into storage via the form.watch subscription, effectively
+  // undoing the discard. Mirrors the Formik / TanStack adapters' behavior.
+  const discard = useCallback(() => {
+    draft.discard();
+    // Mark the upcoming form.reset() as library-initiated so the watch
+    // subscriber skips its patch — otherwise the empty defaults that the
+    // reset emits would be patched back into the just-cleared draft and
+    // re-persisted, undoing the discard.
+    ignoreNextWatchRef.current = true;
+    formRef.current.reset(defaultValues, { keepDefaultValues: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft.discard]);
 
   return {
     status: draft.status,
@@ -59,7 +93,7 @@ export function useFormDraftRHF<T extends FieldValues>(
     pendingChanges: draft.pendingChanges,
     error: draft.error,
     save: draft.save,
-    discard: draft.discard,
+    discard,
     onConflictData: draft.onConflictData,
     resolveConflict: draft.resolveConflict,
   };
