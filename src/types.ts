@@ -60,6 +60,13 @@ export type FormDraftOptions<T> = {
   // is treated as `false`. Keep the probe cheap — it runs on every
   // attempt, including retries.
   connectivityProbe?: () => Promise<boolean>;
+  // Background reachability detector (typically `createHeartbeatDetector`).
+  // When provided, replaces both `navigator.onLine` checks and the raw
+  // 'online' / 'visibilitychange' window listeners for sync gating. The
+  // detector is owned by the caller — `destroy()` it when no longer needed.
+  // Stack with `connectivityProbe` if you want both: the detector gates the
+  // initial attempt, the probe gates each individual attempt.
+  onlineDetector?: import('./internal/heartbeatDetector').OnlineDetector;
 };
 
 export type FormDraftResult<T> = {

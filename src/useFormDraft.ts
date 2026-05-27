@@ -58,6 +58,7 @@ export function useFormDraft<T extends Record<string, unknown>>(
     migrate,
     disabled = false,
     connectivityProbe,
+    onlineDetector,
   } = options;
 
   const [values, setValues] = useState<T>(defaultValues);
@@ -180,13 +181,14 @@ export function useFormDraft<T extends Record<string, unknown>>(
         if (!probe) return true;
         return probe();
       },
+      onlineDetector,
     });
     return () => {
       syncQueueRef.current?.cancel();
       syncQueueRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [disabled, hasSync, retryConfig]);
+  }, [disabled, hasSync, retryConfig, onlineDetector]);
 
   // --- Broadcaster (multi-tab) ---
   const broadcasterRef = useRef<ReturnType<typeof createBroadcaster<T>> | null>(null);
@@ -265,11 +267,25 @@ export function useFormDraft<T extends Record<string, unknown>>(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [disabled, multiTab, key]);
 
-  // --- Online/offline ---
+  // --- Online/offline → status pill ---
+  // When an onlineDetector is provided, subscribe to it as the source of truth
+  // (captive-portal aware). Otherwise fall back to raw window events. Without
+  // this, a captive-portal user typing offline would see status stuck at 'idle'
+  // because the queue defers sync but the pill machine never heard OFFLINE.
   useEffect(() => {
     if (disabled) return;
     const handleOnline = () => statusMachineRef.current.send('ONLINE');
     const handleOffline = () => statusMachineRef.current.send('OFFLINE');
+
+    if (onlineDetector) {
+      // Seed initial state, then track transitions from the detector.
+      if (!onlineDetector.isOnline()) statusMachineRef.current.send('OFFLINE');
+      return onlineDetector.subscribe((isOnline) => {
+        if (isOnline) handleOnline();
+        else handleOffline();
+      });
+    }
+
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
     if (!navigator.onLine) statusMachineRef.current.send('OFFLINE');
@@ -277,7 +293,7 @@ export function useFormDraft<T extends Record<string, unknown>>(
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
-  }, [disabled]);
+  }, [disabled, onlineDetector]);
 
   // --- Restore from storage on mount ---
   useEffect(() => {

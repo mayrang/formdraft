@@ -4,6 +4,7 @@ export { zodAdapter } from './internal/schemaValidation';
 export { localStorageAdapter } from './storage/localStorage';
 export { sessionStorageAdapter } from './storage/sessionStorage';
 export { indexedDBAdapter } from './storage/indexedDB';
+export { createHeartbeatDetector } from './internal/heartbeatDetector';
 
 export type {
   FormDraftStatus,
@@ -14,3 +15,7 @@ export type {
   FormDraftOptions,
   FormDraftResult,
 } from './types';
+export type {
+  OnlineDetector,
+  HeartbeatDetectorOptions,
+} from './internal/heartbeatDetector';
