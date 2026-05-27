@@ -144,10 +144,38 @@ formdraft is that stack, packaged. With the 7 platform-quirk traps AI assistants
 ## Storage adapters
 
 ```tsx
-import { localStorageAdapter, sessionStorageAdapter, indexedDBAdapter } from 'formdraft';
+import { localStorageAdapter, sessionStorageAdapter, indexedDBAdapter, autoAdapter } from 'formdraft';
 
 useFormDraft({ ..., storage: indexedDBAdapter() });  // for big forms
 ```
+
+### `autoAdapter` — automatic localStorage → IndexedDB
+
+If you don't know upfront how large a draft will get (rich text editor, base64 image uploads, long markdown), use `autoAdapter`. It writes to localStorage for small payloads, and once a value crosses the size threshold, transparently routes that key to IndexedDB. Existing data is migrated; the stale localStorage entry is cleaned up so reads stay consistent.
+
+```tsx
+import { autoAdapter } from 'formdraft';
+
+useFormDraft({
+  storage: autoAdapter({
+    thresholdBytes: 500_000,  // default 1_000_000 (1 MB)
+    onMigration: (key, reason) => {
+      console.log(`[formdraft] ${key} migrated to IndexedDB:`, reason);
+    },
+  }),
+  // ...
+});
+```
+
+It also recovers from `QuotaExceededError` — if another library on the same origin fills localStorage and our write fails, autoAdapter falls back to IndexedDB transparently (and fires `onMigration` with `reason: 'quota'`).
+
+Notes:
+- `thresholdBytes` is compared against `JSON.stringify(value).length`, i.e. UTF-16 code units; multi-byte chars (Korean, emoji) under-count by ~2× vs. real on-wire bytes. The 1 MB default leaves plenty of headroom for this.
+- Strict inequality: a payload of exactly `thresholdBytes` stays in primary. Cross it (`>`) to trigger migration.
+- After a key migrates to IndexedDB, reads become async (~10-50ms typical) instead of synchronous localStorage. Negligible for mount-restore but worth noting for very latency-sensitive flows.
+- `primary` and `fallback` MUST be distinct adapter instances; the constructor throws otherwise.
+- If a migration's `primary.remove` fails (rare; usually means storage was disabled mid-session), the stale localStorage entry remains and reads return the old value until the next successful `write()` or `remove()` resolves it. `onMigration` is suppressed in this case so telemetry doesn't lie.
+- Concurrent `read()` + `clear()` ordering is undefined: a read started before clear may still resolve with pre-clear data. Sequence them in caller code if you need strict happens-before.
 
 ## Reliable online detection
 
