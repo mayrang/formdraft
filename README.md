@@ -3,7 +3,7 @@
 > Production-grade form auto-save + offline survival for React. Zero runtime dependencies.
 
 [![npm version](https://img.shields.io/npm/v/formdraft?label=npm&color=cb3837)](https://www.npmjs.com/package/formdraft)
-[![bundle size](https://img.shields.io/bundlephobia/minzip/formdraft?label=gzipped)](https://bundlephobia.com/package/formdraft)
+[![bundle size](https://img.shields.io/badge/size-5.4%20KB%20brotli-success)](#zero-runtime-dependencies)
 [![license](https://img.shields.io/npm/l/formdraft)](LICENSE)
 [![zero deps](https://img.shields.io/badge/runtime%20deps-0-success)](#zero-runtime-dependencies)
 
