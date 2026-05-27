@@ -13,5 +13,4 @@ export type {
   MultiTabStrategy,
   FormDraftOptions,
   FormDraftResult,
-  BroadcastMessage,
 } from './types';

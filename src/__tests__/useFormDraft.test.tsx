@@ -350,6 +350,81 @@ describe('useFormDraft', () => {
     expect(localStorage.getItem('formdraft:test-key')).toBeNull();
   });
 
+  it('discard during in-flight sync does not flip status to "saved" (S-CONC-6 regression)', async () => {
+    // The in-flight sync's onSuccess used to fire AFTER discard() cleared
+    // everything, leaving the status pill misleadingly at 'saved'.
+    let resolveSync: () => void = () => {};
+    const slowSync = vi.fn().mockImplementation(
+      () => new Promise<void>((r) => { resolveSync = r; }),
+    );
+    const { Probe } = setup({ sync: slowSync });
+    render(<Probe />);
+
+    act(() => screen.getByTestId('set-name').click());
+    // Wait past sync debounce so sync wrapper starts (status → 'saving')
+    await vi.advanceTimersByTimeAsync(100);
+    await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('saving'));
+
+    // User clicks Discard while sync is still mid-await
+    act(() => screen.getByTestId('discard').click());
+    expect(screen.getByTestId('status').textContent).toBe('idle');
+
+    // Sync now resolves — must NOT flip status back to 'saved'
+    resolveSync();
+    await vi.advanceTimersByTimeAsync(100);
+    expect(screen.getByTestId('status').textContent).toBe('idle');
+    expect(screen.getByTestId('name').textContent).toBe('');
+  });
+
+  it('submit during in-flight sync does not surface stale save error', async () => {
+    // Symmetric to the discard case: if the in-flight sync rejects after
+    // submit cleared state, the stale error must not be set on the form.
+    let rejectSync: (e: Error) => void = () => {};
+    const slowSync = vi.fn().mockImplementation(
+      () => new Promise<void>((_, rej) => { rejectSync = rej; }),
+    );
+    function Inner() {
+      const draft = useFormDraft<V>({
+        key: 'submit-race',
+        schema: zodAdapter(Schema),
+        defaultValues: DEFAULTS,
+        storage: localStorageAdapter(),
+        sync: slowSync,
+        syncDebounceMs: 50,
+        multiTab: false,
+      });
+      return (
+        <div>
+          <span data-testid="r-status">{draft.status}</span>
+          <span data-testid="r-error">{draft.error?.message ?? ''}</span>
+          <button data-testid="r-set" onClick={() => draft.set('name', 'X')} />
+          <button
+            data-testid="r-submit"
+            onClick={() =>
+              draft
+                .submit(async () => undefined)({ preventDefault: () => {} })
+                .catch(() => {})
+            }
+          />
+        </div>
+      );
+    }
+    function R() {
+      return <StrictMode><Inner /></StrictMode>;
+    }
+    render(<R />);
+    act(() => screen.getByTestId('r-set').click());
+    await vi.advanceTimersByTimeAsync(100);
+    await waitFor(() => expect(screen.getByTestId('r-status').textContent).toBe('saving'));
+
+    act(() => screen.getByTestId('r-submit').click());
+    rejectSync(new Error('network died'));
+    await vi.advanceTimersByTimeAsync(100);
+    // No stale error from the orphaned sync
+    expect(screen.getByTestId('r-error').textContent).toBe('');
+    expect(screen.getByTestId('r-status').textContent).toBe('idle');
+  });
+
   it('disabled=true skips persist and sync', async () => {
     const sync = vi.fn();
     const { Probe } = setup({ sync, disabled: true });

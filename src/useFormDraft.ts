@@ -92,6 +92,12 @@ export function useFormDraft<T extends Record<string, unknown>>(
   // late-arriving storage restore so user input isn't clobbered.
   const userTouchedRef = useRef(false);
 
+  // Incremented on discard() / submit() so an in-flight sync that resolves AFTER
+  // those calls can detect it was orphaned and skip its setLastSavedAt /
+  // SAVE_SUCCESS dispatch. Without this guard, the status pill flips to "Saved"
+  // immediately after the user clicked Discard.
+  const syncGenerationRef = useRef(0);
+
   const retryConfig: RetryConfig = useMemo(
     () => ({ ...DEFAULT_RETRY, ...syncRetry }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -125,11 +131,16 @@ export function useFormDraft<T extends Record<string, unknown>>(
     if (disabled || !hasSync) return;
     syncQueueRef.current = createSyncQueue<T>({
       sync: async (v) => {
+        // Capture the generation at SAVE_START. If discard() or submit()
+        // bumps it before the user's sync resolves, this attempt has been
+        // orphaned and must NOT update lastSavedAt / status / pendingChanges.
+        const myGen = syncGenerationRef.current;
         statusMachineRef.current.send('SAVE_START');
         try {
           const fn = syncRef.current;
           if (!fn) throw new Error('[formdraft] sync was removed mid-flight');
           await fn(v);
+          if (myGen !== syncGenerationRef.current) return; // orphaned by discard/submit
           if (mountedRef.current) {
             setLastSavedAt(new Date());
             setError(null);
@@ -137,6 +148,7 @@ export function useFormDraft<T extends Record<string, unknown>>(
           }
           statusMachineRef.current.send('SAVE_SUCCESS');
         } catch (e) {
+          if (myGen !== syncGenerationRef.current) return; // orphaned; drop error too
           const err = e instanceof Error ? e : new Error(String(e));
           if (mountedRef.current) setError(err);
           statusMachineRef.current.send('SAVE_FAIL');
@@ -194,6 +206,7 @@ export function useFormDraft<T extends Record<string, unknown>>(
     });
     b.onSubmitted(() => {
       if (!mountedRef.current) return;
+      syncGenerationRef.current += 1;
       persistDebouncedRef.current.cancel();
       broadcastDebouncedRef.current.cancel();
       syncDebouncedRef.current?.cancel();
@@ -207,6 +220,7 @@ export function useFormDraft<T extends Record<string, unknown>>(
     });
     b.onDiscarded(() => {
       if (!mountedRef.current) return;
+      syncGenerationRef.current += 1;
       persistDebouncedRef.current.cancel();
       broadcastDebouncedRef.current.cancel();
       syncDebouncedRef.current?.cancel();
@@ -426,6 +440,10 @@ export function useFormDraft<T extends Record<string, unknown>>(
   }, []);
 
   const discard = useCallback(() => {
+    // Bump the sync generation FIRST so an in-flight sync that resolves
+    // moments later sees its generation is stale and skips its onSuccess
+    // path (would otherwise set lastSavedAt + flip status to 'saved').
+    syncGenerationRef.current += 1;
     // Cancel pending debounced writes BEFORE removing storage, otherwise a
     // 50ms-old keystroke fires after this call and resurrects the draft.
     persistDebouncedRef.current.cancel();
@@ -450,6 +468,10 @@ export function useFormDraft<T extends Record<string, unknown>>(
         e?.preventDefault?.();
         try {
           const result = await handler(valuesRef.current);
+          // Bump the sync generation FIRST so any sync that began before
+          // submit (still mid-await) is orphaned and cannot flip the status
+          // pill after submit cleared everything.
+          syncGenerationRef.current += 1;
           // Cancel pending writes so they don't rewrite storage after submit cleared it.
           persistDebouncedRef.current.cancel();
           broadcastDebouncedRef.current.cancel();

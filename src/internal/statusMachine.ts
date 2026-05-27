@@ -22,6 +22,7 @@ const transitions: Record<FormDraftStatus, Partial<Record<StatusEvent, FormDraft
     SAVE_FAIL: 'error',
     OFFLINE: 'offline',
     CONFLICT: 'conflict',
+    RESET: 'idle', // discard() / submit() during in-flight sync must clear the pill
   },
   saved: {
     SAVE_START: 'saving',
