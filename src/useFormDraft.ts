@@ -76,6 +76,21 @@ export function useFormDraft<T extends Record<string, unknown>>(
     valuesRef.current = values;
   }, [values]);
 
+  // Refs holding the latest options so the once-created debounced functions can
+  // read current values without re-running `useRef(debounce(...))` each render.
+  // Without these, changing `key`, `storage`, or `version` would write to the
+  // stale captured values forever.
+  const storageRef = useRef(storage);
+  storageRef.current = storage;
+  const keyRef = useRef(key);
+  keyRef.current = key;
+  const versionRef = useRef(version);
+  versionRef.current = version;
+
+  // Tracks whether user has called set()/patch() since mount. Used to skip a
+  // late-arriving storage restore so user input isn't clobbered.
+  const userTouchedRef = useRef(false);
+
   const retryConfig: RetryConfig = useMemo(
     () => ({ ...DEFAULT_RETRY, ...syncRetry }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -144,11 +159,19 @@ export function useFormDraft<T extends Record<string, unknown>>(
     });
     b.onSubmitted(() => {
       if (!mountedRef.current) return;
+      persistDebouncedRef.current.cancel();
+      broadcastDebouncedRef.current.cancel();
+      syncDebouncedRef.current?.cancel();
+      userTouchedRef.current = false;
       setValues(defaultValues);
       void storage.remove(key);
     });
     b.onDiscarded(() => {
       if (!mountedRef.current) return;
+      persistDebouncedRef.current.cancel();
+      broadcastDebouncedRef.current.cancel();
+      syncDebouncedRef.current?.cancel();
+      userTouchedRef.current = false;
       setValues(defaultValues);
     });
     return () => {
@@ -206,7 +229,7 @@ export function useFormDraft<T extends Record<string, unknown>>(
             return;
           }
           const validated = validateOrDiscard(mergeExcluded(migrated), schema, key);
-          if (validated !== null) setValues(validated);
+          if (validated !== null && !userTouchedRef.current) setValues(validated);
           return;
         }
         // eslint-disable-next-line no-console
@@ -217,7 +240,9 @@ export function useFormDraft<T extends Record<string, unknown>>(
         return;
       }
       const validated = validateOrDiscard(mergeExcluded(record.values), schema, key);
-      if (validated !== null) setValues(validated);
+      // Skip restore if user has already typed — don't clobber their input with a
+      // late-arriving storage read (race surfaces in StrictMode and slow I/O).
+      if (validated !== null && !userTouchedRef.current) setValues(validated);
     })();
     return () => {
       cancelled = true;
@@ -227,7 +252,9 @@ export function useFormDraft<T extends Record<string, unknown>>(
   }, [disabled]);
 
   // --- Debounced persist, broadcast, sync refs ---
-  // These are created once; we use refs so we don't recreate them on re-render.
+  // Created once with stable identity; closures read from refs above so they
+  // always see the latest storage/key/version/excludeFields without recreating
+  // (which would lose pending timers and stale-close on old values).
   const excludeFieldsRef = useRef(excludeFields);
   excludeFieldsRef.current = excludeFields;
 
@@ -236,7 +263,10 @@ export function useFormDraft<T extends Record<string, unknown>>(
       if (!mountedRef.current) return;
       const stripped = stripExcluded(next, excludeFieldsRef.current);
       try {
-        await storage.write(key, { __v: version, values: stripped } as StoredRecord<T>);
+        await storageRef.current.write(keyRef.current, {
+          __v: versionRef.current,
+          values: stripped,
+        } as StoredRecord<T>);
       } catch (e) {
         const err = e instanceof Error ? e : new Error(String(e));
         if (mountedRef.current) setError(err);
@@ -251,11 +281,19 @@ export function useFormDraft<T extends Record<string, unknown>>(
     }, BROADCAST_DEBOUNCE_MS),
   );
 
-  const syncDebouncedRef = useRef(
-    debounce((next: T) => {
+  // syncDebounceMs is dynamic — recreate the debounced fn when it changes so
+  // a new delay actually takes effect. Cancel the old one on dep change.
+  const syncDebouncedRef = useRef<ReturnType<typeof debounce<[T]>> | null>(null);
+  useEffect(() => {
+    const d = debounce((next: T) => {
       syncQueueRef.current?.enqueue(next);
-    }, syncDebounceMs),
-  );
+    }, syncDebounceMs);
+    syncDebouncedRef.current = d;
+    return () => {
+      d.cancel();
+      syncDebouncedRef.current = null;
+    };
+  }, [syncDebounceMs]);
 
   // Fire side-effects whenever values change due to user actions
   useEffect(() => {
@@ -263,7 +301,7 @@ export function useFormDraft<T extends Record<string, unknown>>(
     if (pendingChanges) {
       persistDebouncedRef.current(values);
       broadcastDebouncedRef.current(values);
-      syncDebouncedRef.current(values);
+      syncDebouncedRef.current?.(values);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [disabled, values, pendingChanges]);
@@ -279,17 +317,23 @@ export function useFormDraft<T extends Record<string, unknown>>(
   }, [key, lastSavedAt]);
 
   // Track mount status. Re-set to true on each mount so React.StrictMode's
-  // mount→unmount→mount cycle doesn't leave mountedRef stuck at false.
+  // mount→unmount→mount cycle doesn't leave mountedRef stuck at false. Also
+  // cancel any pending debounced writes so a stale 50ms-old keystroke can't
+  // fire after the component is gone (and into the wrong storage key).
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      persistDebouncedRef.current.cancel();
+      broadcastDebouncedRef.current.cancel();
+      syncDebouncedRef.current?.cancel();
     };
   }, []);
 
   // --- Public API ---
   const set = useCallback(
     <K extends keyof T>(field: K, value: T[K]) => {
+      userTouchedRef.current = true;
       setValues((prev) => ({ ...prev, [field]: value }));
       setPendingChanges(true);
     },
@@ -297,16 +341,23 @@ export function useFormDraft<T extends Record<string, unknown>>(
   );
 
   const patch = useCallback((partial: Partial<T>) => {
+    userTouchedRef.current = true;
     setValues((prev) => ({ ...prev, ...partial }));
     setPendingChanges(true);
   }, []);
 
   const save = useCallback(async () => {
-    syncDebouncedRef.current.flush();
+    syncDebouncedRef.current?.flush();
     await syncQueueRef.current?.flush();
   }, []);
 
   const discard = useCallback(() => {
+    // Cancel pending debounced writes BEFORE removing storage, otherwise a
+    // 50ms-old keystroke fires after this call and resurrects the draft.
+    persistDebouncedRef.current.cancel();
+    broadcastDebouncedRef.current.cancel();
+    syncDebouncedRef.current?.cancel();
+    userTouchedRef.current = false;
     setValues(defaultValues);
     setPendingChanges(false);
     setLastSavedAt(null);
@@ -325,6 +376,11 @@ export function useFormDraft<T extends Record<string, unknown>>(
         e?.preventDefault?.();
         try {
           const result = await handler(valuesRef.current);
+          // Cancel pending writes so they don't rewrite storage after submit cleared it.
+          persistDebouncedRef.current.cancel();
+          broadcastDebouncedRef.current.cancel();
+          syncDebouncedRef.current?.cancel();
+          userTouchedRef.current = false;
           void storage.remove(key);
           broadcasterRef.current?.broadcastSubmitted();
           syncQueueRef.current?.cancel();

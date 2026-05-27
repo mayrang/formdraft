@@ -210,6 +210,59 @@ describe('useFormDraft', () => {
     expect(JSON.parse(stored!)).toMatchObject({ values: { name: 'Alice' } });
   });
 
+  it('discard() cancels pending debounced persist; storage stays cleared after late timers', async () => {
+    // Regression: a 50ms-old keystroke would fire AFTER discard() removed storage,
+    // resurrecting the very draft the user just discarded.
+    const { Probe } = setup();
+    render(<Probe />);
+    act(() => screen.getByTestId('set-name').click());
+    // No advance — debounce still pending
+    act(() => screen.getByTestId('discard').click());
+    await vi.advanceTimersByTimeAsync(500);
+    expect(localStorage.getItem('formdraft:test-key')).toBeNull();
+  });
+
+  it('does not restore stored draft over user input that arrived first (race guard)', async () => {
+    // If user types before async storage.read resolves, restore must skip.
+    // Without this guard, StrictMode + slow I/O would clobber the user's first keystroke.
+    localStorage.setItem(
+      'formdraft:test-key',
+      JSON.stringify({ __v: 1, values: { name: 'Stored', age: 5 } }),
+    );
+    const { Probe } = setup();
+    render(<Probe />);
+    // Touch the form synchronously, before the restore async callback can fire
+    act(() => screen.getByTestId('set-name').click());
+    await vi.advanceTimersByTimeAsync(200);
+    expect(screen.getByTestId('name').textContent).toBe('Alice');
+  });
+
+  it('persists to the new key after key prop changes (no stale closure)', async () => {
+    // Regression: persistDebouncedRef captured `key` from first render, so changing
+    // `key` would silently keep writing to the old key forever.
+    function Probe({ k }: { k: string }) {
+      const draft = useFormDraft<V>({
+        key: k,
+        schema: zodAdapter(Schema),
+        defaultValues: DEFAULTS,
+        storage: localStorageAdapter(),
+        syncDebounceMs: 50,
+        multiTab: false,
+      });
+      return (
+        <button data-testid="set" onClick={() => draft.set('name', 'After')} />
+      );
+    }
+    const { rerender } = render(<Probe k="key-a" />);
+    rerender(<Probe k="key-b" />);
+    act(() => screen.getByTestId('set').click());
+    await vi.advanceTimersByTimeAsync(200);
+    expect(localStorage.getItem('formdraft:key-a')).toBeNull();
+    const stored = localStorage.getItem('formdraft:key-b');
+    expect(stored).not.toBeNull();
+    expect(JSON.parse(stored!)).toMatchObject({ values: { name: 'After' } });
+  });
+
   it('disabled=true skips persist and sync', async () => {
     const sync = vi.fn();
     const { Probe } = setup({ sync, disabled: true });

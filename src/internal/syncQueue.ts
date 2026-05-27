@@ -22,14 +22,17 @@ export function createSyncQueue<T>(opts: SyncQueueOptions<T>): SyncQueue<T> {
   let cancelled = false;
 
   const handleOnline = () => {
+    if (cancelled) return;
     if (pendingValues !== null && !inFlight) schedule(0);
   };
+  const handleVisibility = () => {
+    if (document.visibilityState === 'visible') handleOnline();
+  };
 
-  if (typeof window !== 'undefined') {
+  const hasWindow = typeof window !== 'undefined';
+  if (hasWindow) {
     window.addEventListener('online', handleOnline);
-    window.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') handleOnline();
-    });
+    window.addEventListener('visibilitychange', handleVisibility);
   }
 
   function schedule(delayMs: number): void {
@@ -42,6 +45,7 @@ export function createSyncQueue<T>(opts: SyncQueueOptions<T>): SyncQueue<T> {
 
   async function attemptSync(): Promise<void> {
     if (cancelled) return;
+    if (inFlight) return; // re-entry guard: flush() called while a timer attempt is mid-flight
     if (pendingValues === null) return;
     if (typeof navigator !== 'undefined' && !navigator.onLine) return;
 
@@ -50,12 +54,20 @@ export function createSyncQueue<T>(opts: SyncQueueOptions<T>): SyncQueue<T> {
     attempt += 1;
     try {
       await opts.sync(values);
+      if (cancelled) return; // caller bailed during the await; don't fire onSuccess
       if (pendingValues === values) {
         pendingValues = null;
         attempt = 0;
+      } else {
+        // A newer value was enqueued while this sync was in-flight. enqueue()
+        // skipped scheduling because inFlight was true — re-arm now.
+        attempt = 0;
+        inFlight = false;
+        schedule(0);
       }
       opts.onSuccess?.();
     } catch (e) {
+      if (cancelled) return;
       const err = e instanceof Error ? e : new Error(String(e));
       opts.onError?.(err, attempt);
       if (attempt < opts.retry.maxAttempts) {
@@ -84,6 +96,10 @@ export function createSyncQueue<T>(opts: SyncQueueOptions<T>): SyncQueue<T> {
       attempt = 0;
       if (timer) clearTimeout(timer);
       timer = null;
+      if (hasWindow) {
+        window.removeEventListener('online', handleOnline);
+        window.removeEventListener('visibilitychange', handleVisibility);
+      }
     },
     pending() {
       return pendingValues !== null || inFlight;
