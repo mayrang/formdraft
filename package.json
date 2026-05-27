@@ -27,6 +27,11 @@
       "import": "./dist/tanstack-form/index.mjs",
       "require": "./dist/tanstack-form/index.js"
     },
+    "./ui": {
+      "types": "./dist/ui/index.d.ts",
+      "import": "./dist/ui/index.mjs",
+      "require": "./dist/ui/index.js"
+    },
     "./storage/indexedDB": {
       "types": "./dist/storage/indexedDB.d.ts",
       "import": "./dist/storage/indexedDB.mjs",
