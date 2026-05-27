@@ -12,7 +12,7 @@ const Schema = z.object({ name: z.string() });
 
 function Inner({ onSync }: { onSync: ReturnType<typeof vi.fn> }) {
   const form = useForm({ defaultValues: { name: '' } });
-  const { status } = useFormDraftRHF(form, {
+  const { status, discard } = useFormDraftRHF(form, {
     key: 'rhf-test',
     schema: zodAdapter(Schema),
     storage: localStorageAdapter(),
@@ -24,6 +24,9 @@ function Inner({ onSync }: { onSync: ReturnType<typeof vi.fn> }) {
     <div>
       <input data-testid="name" {...form.register('name')} />
       <span data-testid="status">{status}</span>
+      <button data-testid="discard" onClick={discard}>
+        Discard
+      </button>
     </div>
   );
 }
@@ -64,5 +67,25 @@ describe('useFormDraftRHF', () => {
     await waitFor(() => {
       expect((screen.getByTestId('name') as HTMLInputElement).value).toBe('Restored');
     });
+  });
+
+  it('discard clears storage AND resets the visible RHF form, without re-persisting', async () => {
+    // Round-1 audit (v0.2 e2e pass): discard used to clear storage but leave
+    // the visible RHF input populated. Worse, RHF's watch subscription would
+    // then fire (because form.reset emits a change event), patch the empty
+    // defaults back into the draft, and re-persist — silently undoing the
+    // discard. This test locks in the fix.
+    const onSync = vi.fn().mockResolvedValue(undefined);
+    render(<Probe onSync={onSync} />);
+    const input = screen.getByTestId('name') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'about-to-discard' } });
+    await vi.advanceTimersByTimeAsync(200);
+    expect(localStorage.getItem('formdraft:rhf-test')).not.toBeNull();
+
+    fireEvent.click(screen.getByTestId('discard'));
+    await vi.advanceTimersByTimeAsync(300);
+
+    expect((screen.getByTestId('name') as HTMLInputElement).value).toBe('');
+    expect(localStorage.getItem('formdraft:rhf-test')).toBeNull();
   });
 });

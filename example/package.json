@@ -8,7 +8,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@tanstack/react-form": "^1.32.1",
     "formdraft": "file:..",
+    "formik": "^2.4.9",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
     "react-hook-form": "^7.50.0",

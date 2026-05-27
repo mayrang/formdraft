@@ -2,12 +2,12 @@
 
 > Production-grade form auto-save + offline survival for React. Zero runtime dependencies.
 
-[![npm version](https://img.shields.io/npm/v/formdraft/rc?label=npm%20rc&color=cb3837)](https://www.npmjs.com/package/formdraft)
+[![npm version](https://img.shields.io/npm/v/formdraft?label=npm&color=cb3837)](https://www.npmjs.com/package/formdraft)
 [![bundle size](https://img.shields.io/bundlephobia/minzip/formdraft?label=gzipped)](https://bundlephobia.com/package/formdraft)
 [![license](https://img.shields.io/npm/l/formdraft)](LICENSE)
 [![zero deps](https://img.shields.io/badge/runtime%20deps-0-success)](#zero-runtime-dependencies)
 
-> ⚠️ **v0.1.0-rc.2 (release candidate).** Code-complete with 94 unit tests + 21 Playwright e2e tests (Chromium / Firefox / WebKit). Looking for production feedback before v0.1.0 stable. Try it, report bugs at https://github.com/mayrang/formdraft/issues.
+> **v0.2.0** — 202 unit tests + 84 Playwright e2e tests (28 scenarios × Chromium / Firefox / WebKit). New in v0.2: Formik / TanStack Form adapters, `autoAdapter` (localStorage → IndexedDB), `getFormDraft` programmatic handle, `useFormDraftStatus` sibling reader, heartbeat detector, and field-level merge UI (`ConflictResolver` / `ConflictDialog` under `formdraft/ui`).
 
 ![demo](docs/assets/demo.gif)
 
@@ -396,8 +396,7 @@ If your app must defend against malicious same-origin code (e.g., third-party sc
 
 PRs welcome. Especially:
 - Vue / Svelte / Solid adapters (architecture is framework-agnostic at the core; bindings live in `src/<framework>/`)
-- Formik / TanStack Form / Felte adapters
-- Network heartbeat plugin (`navigator.onLine` is unreliable)
+- Felte / React Final Form adapters
 - Real-world bug reports with reproduction
 
 Local development:
@@ -415,7 +414,7 @@ npm run build
 A: Restore is asynchronous. The hook reads storage in a `useEffect`. The default values render first, then values restore on the next paint. To force-show a loading state while restoring, check `pendingChanges === false && values === defaultValues` for the first ~50ms.
 
 **Q: Can I use this with TanStack Form / Formik?**
-A: Use the headless `useFormDraft` and wire your form lib's values into it via the form lib's watch API. The RHF adapter is a thin convenience wrapper. PRs for Formik / TanStack Form adapters welcome (target `formdraft/<adapter>` subpath).
+A: Yes — both ship as dedicated adapters in v0.2 alongside the RHF adapter. Import from `formdraft/formik` or `formdraft/tanstack-form` and wrap your form instance. See the "Form library integrations" section above for the wiring.
 
 **Q: My form has 100+ fields and IndexedDB feels slow.**
 A: localStorage handles up to ~5 MB synchronously; IndexedDB is recommended for forms with large binary content (base64 images, long markdown). Pure text forms should stay on localStorage.
@@ -446,11 +445,11 @@ A: No. formdraft uses BroadcastChannel, navigator.onLine, IndexedDB — all brow
 
 ## Status
 
-- **v0.1.0-rc.1** on [npm](https://www.npmjs.com/package/formdraft) (RC — looking for production feedback)
-- 94 unit tests + 21 Playwright e2e (7 headline scenarios × Chromium / Firefox / WebKit)
-- **~3.85 KB brotli** (8 KB CI gate)
+- **v0.2.0** on [npm](https://www.npmjs.com/package/formdraft)
+- 202 unit tests + 84 Playwright e2e (28 scenarios × Chromium / Firefox / WebKit)
+- **~5.42 KB brotli** (8 KB CI gate) — UI helpers ship as a separate `formdraft/ui` chunk
 - React 18+; Browser support Chrome/Edge 88+, Firefox 78+, Safari 15.4+
-- WebKit (iOS Safari engine): persist, restore, discard race, offline queue, submit broadcast all verified e2e
+- Every adapter (RHF / Formik / TanStack Form) and every storage backend (localStorage / sessionStorage / IndexedDB / autoAdapter) is exercised end-to-end on all three engines
 - 0 runtime dependencies
 
 ## License

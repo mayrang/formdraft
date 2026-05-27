@@ -1,257 +1,113 @@
-import { z } from 'zod';
-import { useFormDraft, zodAdapter, localStorageAdapter } from 'formdraft';
+import { useEffect, useState, lazy, Suspense } from 'react';
 import './App.css';
+import WizardPage from './pages/WizardPage';
 
-const Schema = z.object({
-  email: z.string(),
-  password: z.string(),
-  name: z.string(),
-  bio: z.string(),
-  newsletter: z.boolean(),
-  theme: z.enum(['light', 'dark']),
-  step: z.number().min(1).max(5),
-});
+const ConflictPage = lazy(() => import('./pages/ConflictPage'));
+const AutoStoragePage = lazy(() => import('./pages/AutoStoragePage'));
+const ExternalControlPage = lazy(() => import('./pages/ExternalControlPage'));
+const HeartbeatPage = lazy(() => import('./pages/HeartbeatPage'));
+const RhfPage = lazy(() => import('./pages/RhfPage'));
+const FormikPage = lazy(() => import('./pages/FormikPage'));
+const TanstackPage = lazy(() => import('./pages/TanstackPage'));
+const SessionStoragePage = lazy(() => import('./pages/SessionStoragePage'));
+const IndexedDBPage = lazy(() => import('./pages/IndexedDBPage'));
 
-type V = z.infer<typeof Schema>;
+type Route =
+  | 'wizard'
+  | 'conflict'
+  | 'auto-storage'
+  | 'external-control'
+  | 'heartbeat'
+  | 'rhf'
+  | 'formik'
+  | 'tanstack'
+  | 'session-storage'
+  | 'indexeddb'
+  | 'index';
 
-const DEFAULTS: V = {
-  email: '', password: '', name: '', bio: '',
-  newsletter: true, theme: 'light', step: 1,
-};
+function parseRoute(): Route {
+  const h = window.location.hash.replace(/^#\/?/, '');
+  if (!h || h === 'wizard') return 'wizard';
+  if (h === 'index') return 'index';
+  if (
+    h === 'conflict' ||
+    h === 'auto-storage' ||
+    h === 'external-control' ||
+    h === 'heartbeat' ||
+    h === 'rhf' ||
+    h === 'formik' ||
+    h === 'tanstack' ||
+    h === 'session-storage' ||
+    h === 'indexeddb'
+  ) return h;
+  return 'wizard';
+}
 
-const STEP_LABELS = ['Account', 'Profile', 'Preferences', 'Notifications', 'Confirm'];
+function useHashRoute(): Route {
+  const [route, setRoute] = useState<Route>(parseRoute);
+  useEffect(() => {
+    const handler = () => setRoute(parseRoute());
+    window.addEventListener('hashchange', handler);
+    return () => window.removeEventListener('hashchange', handler);
+  }, []);
+  return route;
+}
 
-export default function App() {
-  const draft = useFormDraft<V>({
-    key: 'signup-wizard',
-    schema: zodAdapter(Schema),
-    defaultValues: DEFAULTS,
-    storage: localStorageAdapter(),
-    sync: async (v) => {
-      await new Promise((r) => setTimeout(r, 800));
-      console.log('[sync]', v);
-    },
-    syncDebounceMs: 1500,
-    excludeFields: ['password'],
-  });
+const DEMOS: Array<{ hash: Route; title: string; desc: string }> = [
+  { hash: 'wizard', title: 'Signup wizard (default)', desc: '5-step localStorage wizard with excludeFields + offline sync.' },
+  { hash: 'conflict', title: 'Conflict UI', desc: 'multiTab=warn + <ConflictDialog>/<ConflictResolver> field-level merge.' },
+  { hash: 'auto-storage', title: 'autoAdapter', desc: 'localStorage → IndexedDB fallback on quota or large payloads.' },
+  { hash: 'external-control', title: 'getFormDraft + useFormDraftStatus', desc: 'Drive a draft programmatically from outside the React tree.' },
+  { hash: 'heartbeat', title: 'Heartbeat detector', desc: 'Background HEAD probe for captive portals; cheap cached read.' },
+  { hash: 'rhf', title: 'React Hook Form adapter', desc: 'register + watch wiring against useFormDraft.' },
+  { hash: 'formik', title: 'Formik adapter', desc: 'getFieldProps + setValues wiring.' },
+  { hash: 'tanstack', title: 'TanStack Form adapter', desc: 'FormApi wiring.' },
+  { hash: 'session-storage', title: 'sessionStorageAdapter', desc: 'Per-tab persistence; survives reload, not close.' },
+  { hash: 'indexeddb', title: 'indexedDBAdapter', desc: 'Async storage with quota headroom.' },
+];
 
-  const next = () => draft.set('step', Math.min(5, draft.values.step + 1) as V['step']);
-  const prev = () => draft.set('step', Math.max(1, draft.values.step - 1) as V['step']);
-
+function Index() {
   return (
     <div className="page">
       <div className="shell">
         <header className="header">
-          <h1 className="title">formdraft</h1>
-          <p className="subtitle">
-            Fill out the form, then <strong>refresh the page</strong>. Your typing survives.
-          </p>
+          <h1 className="title">formdraft demos</h1>
+          <p className="subtitle">Each page exercises one feature. Open in a browser and follow the steps.</p>
         </header>
-
-        <StepIndicator current={draft.values.step} />
-
         <div className="card">
-          <div className="card-header">
-            <h2 className="card-title">
-              Step {draft.values.step}: {STEP_LABELS[draft.values.step - 1]}
-            </h2>
-            <StatusPill status={draft.status} savedAt={draft.lastSavedAt} />
-          </div>
-
           <div className="card-body">
-            {draft.values.step === 1 && (
-              <>
-                <Field label="Email">
-                  <input
-                    className="input"
-                    type="email"
-                    placeholder="you@example.com"
-                    value={draft.values.email}
-                    onChange={(e) => draft.set('email', e.target.value)}
-                  />
-                </Field>
-                <Field label="Password" hint="Excluded from localStorage for security.">
-                  <input
-                    className="input"
-                    type="password"
-                    placeholder="••••••••"
-                    value={draft.values.password}
-                    onChange={(e) => draft.set('password', e.target.value)}
-                  />
-                </Field>
-              </>
-            )}
-
-            {draft.values.step === 2 && (
-              <>
-                <Field label="Name">
-                  <input
-                    className="input"
-                    placeholder="Your name"
-                    value={draft.values.name}
-                    onChange={(e) => draft.set('name', e.target.value)}
-                  />
-                </Field>
-                <Field label="Bio">
-                  <textarea
-                    className="input textarea"
-                    placeholder="A short bio…"
-                    value={draft.values.bio}
-                    onChange={(e) => draft.set('bio', e.target.value)}
-                  />
-                </Field>
-              </>
-            )}
-
-            {draft.values.step === 3 && (
-              <>
-                <Field label="Newsletter">
-                  <label className="checkbox-row">
-                    <input
-                      type="checkbox"
-                      checked={draft.values.newsletter}
-                      onChange={(e) => draft.set('newsletter', e.target.checked)}
-                    />
-                    <span>Send me product updates monthly</span>
-                  </label>
-                </Field>
-                <Field label="Theme">
-                  <div className="radio-group">
-                    {(['light', 'dark'] as const).map((t) => (
-                      <label
-                        key={t}
-                        className={`radio-option ${draft.values.theme === t ? 'active' : ''}`}
-                      >
-                        <input
-                          type="radio"
-                          checked={draft.values.theme === t}
-                          onChange={() => draft.set('theme', t)}
-                          style={{ display: 'none' }}
-                        />
-                        <span style={{ textTransform: 'capitalize' }}>{t}</span>
-                      </label>
-                    ))}
-                  </div>
-                </Field>
-              </>
-            )}
-
-            {draft.values.step === 4 && (
-              <div className="placeholder">
-                <span style={{ fontSize: 28 }}>🔔</span>
-                <p>Notification settings placeholder (extend as you wish).</p>
-              </div>
-            )}
-
-            {draft.values.step === 5 && (
-              <>
-                <Field label="Review your draft">
-                  <pre className="preview">
-                    {JSON.stringify(
-                      { ...draft.values, password: draft.values.password ? '••••••' : '' },
-                      null,
-                      2,
-                    )}
-                  </pre>
-                </Field>
-                <button
-                  className="button button-primary"
-                  onClick={draft.submit(async (v) => {
-                    console.log('Submitted:', v);
-                    alert('Signed up! Draft cleared.');
-                  })}
-                >
-                  Submit
-                </button>
-              </>
-            )}
-          </div>
-
-          <div className="card-footer">
-            <button
-              className="button button-ghost"
-              onClick={prev}
-              disabled={draft.values.step === 1}
-            >
-              ← Back
-            </button>
-            <button className="button-destructive" onClick={draft.discard}>
-              Discard
-            </button>
-            <button
-              className="button button-primary"
-              onClick={next}
-              disabled={draft.values.step === 5}
-              style={{ marginLeft: 'auto' }}
-            >
-              Next →
-            </button>
+            <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {DEMOS.map((d) => (
+                <li key={d.hash}>
+                  <a className="link" href={`#/${d.hash}`} data-testid={`nav-${d.hash}`} style={{ fontWeight: 600, fontSize: 15 }}>
+                    {d.title}
+                  </a>
+                  <p style={{ margin: '4px 0 0', fontSize: 13, color: '#555' }}>{d.desc}</p>
+                </li>
+              ))}
+            </ul>
           </div>
         </div>
-
-        <footer className="footer">
-          <p>
-            Built with <a className="link" href="https://www.npmjs.com/package/formdraft">formdraft</a>
-            {' · '}zero runtime deps · 3.4 KB brotli
-          </p>
-        </footer>
       </div>
     </div>
   );
 }
 
-function StepIndicator({ current }: { current: number }) {
+export default function App() {
+  const route = useHashRoute();
+  if (route === 'index') return <Index />;
+  if (route === 'wizard') return <WizardPage />;
   return (
-    <div className="stepper">
-      {STEP_LABELS.map((label, i) => {
-        const stepNum = i + 1;
-        const isActive = stepNum === current;
-        const isDone = stepNum < current;
-        return (
-          <div key={label} className="stepper-item">
-            <div
-              className={`stepper-dot ${isActive ? 'active' : ''} ${isDone ? 'done' : ''}`}
-            >
-              {isDone ? '✓' : stepNum}
-            </div>
-            <span className={`stepper-label ${isActive ? 'active' : ''}`}>{label}</span>
-          </div>
-        );
-      })}
-    </div>
+    <Suspense fallback={<div className="page"><div className="shell">Loading…</div></div>}>
+      {route === 'conflict' && <ConflictPage />}
+      {route === 'auto-storage' && <AutoStoragePage />}
+      {route === 'external-control' && <ExternalControlPage />}
+      {route === 'heartbeat' && <HeartbeatPage />}
+      {route === 'rhf' && <RhfPage />}
+      {route === 'formik' && <FormikPage />}
+      {route === 'tanstack' && <TanstackPage />}
+      {route === 'session-storage' && <SessionStoragePage />}
+      {route === 'indexeddb' && <IndexedDBPage />}
+    </Suspense>
   );
-}
-
-function Field({
-  label,
-  hint,
-  children,
-}: {
-  label: string;
-  hint?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="field">
-      <label className="field-label">{label}</label>
-      {children}
-      {hint && <p className="field-hint">{hint}</p>}
-    </div>
-  );
-}
-
-function StatusPill({ status, savedAt }: { status: string; savedAt: Date | null }) {
-  const labels: Record<string, { text: string; cls: string }> = {
-    idle: { text: 'Idle', cls: 'pill-idle' },
-    saving: { text: 'Saving…', cls: 'pill-saving' },
-    saved: {
-      text: savedAt ? `Saved ${savedAt.toLocaleTimeString()}` : 'Saved',
-      cls: 'pill-saved',
-    },
-    offline: { text: 'Offline', cls: 'pill-error' },
-    error: { text: 'Error', cls: 'pill-error' },
-    conflict: { text: 'Conflict', cls: 'pill-saving' },
-  };
-  const cfg = labels[status] ?? labels.idle;
-  return <span className={`pill ${cfg.cls}`}>{cfg.text}</span>;
 }
