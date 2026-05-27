@@ -69,6 +69,37 @@ describe('createBroadcaster', () => {
     a.close();
   });
 
+  it('drops submitted/discarded from cross-version tabs', () => {
+    // Regression: an old tab broadcasting submitted/discarded would wipe a
+    // new tab's draft via a control message the new tab couldn't interpret.
+    const a = createBroadcaster<{ x: number }>({ key: 'k', tabId: 'A', protocolVersion: 1 });
+    const b = createBroadcaster<{ x: number }>({ key: 'k', tabId: 'B', protocolVersion: 2 });
+    const onSubmit = vi.fn();
+    const onDisc = vi.fn();
+    b.onSubmitted(onSubmit);
+    b.onDiscarded(onDisc);
+    a.broadcastSubmitted();
+    a.broadcastDiscarded();
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(onDisc).not.toHaveBeenCalled();
+    a.close();
+    b.close();
+  });
+
+  it('skips broadcast when values contain non-cloneable content', () => {
+    const a = createBroadcaster<{ fn?: () => void }>({ key: 'k', tabId: 'A' });
+    const b = createBroadcaster<{ fn?: () => void }>({ key: 'k', tabId: 'B' });
+    const received: unknown[] = [];
+    b.onValuesChanged((vals) => received.push(vals));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(() => a.broadcastValues({ fn: () => {} })).not.toThrow();
+    expect(received).toEqual([]);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+    a.close();
+    b.close();
+  });
+
   it('handles BroadcastChannel being undefined (gracefully no-op)', () => {
     const original = (globalThis as { BroadcastChannel?: unknown }).BroadcastChannel;
     (globalThis as { BroadcastChannel?: unknown }).BroadcastChannel = undefined;

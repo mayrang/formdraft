@@ -106,14 +106,27 @@ export function useFormDraft<T extends Record<string, unknown>>(
   }, []);
 
   // --- Sync queue ---
+  // S5 regression: callers commonly pass inline `sync` / `onSyncError` arrow
+  // functions without useMemo (the lib's own example did). Including them in
+  // deps recreates the queue on every render, which silently destroys pending
+  // values and the queue's online listener. Use refs to read the latest
+  // callbacks each invocation; deps are only structural transitions.
+  const syncRef = useRef(sync);
+  syncRef.current = sync;
+  const onSyncErrorRef = useRef(onSyncError);
+  onSyncErrorRef.current = onSyncError;
+  const hasSync = sync !== undefined && sync !== null;
+
   const syncQueueRef = useRef<ReturnType<typeof createSyncQueue<T>> | null>(null);
   useEffect(() => {
-    if (disabled || !sync) return;
+    if (disabled || !hasSync) return;
     syncQueueRef.current = createSyncQueue<T>({
       sync: async (v) => {
         statusMachineRef.current.send('SAVE_START');
         try {
-          await sync(v);
+          const fn = syncRef.current;
+          if (!fn) throw new Error('[formdraft] sync was removed mid-flight');
+          await fn(v);
           if (mountedRef.current) {
             setLastSavedAt(new Date());
             setError(null);
@@ -128,15 +141,18 @@ export function useFormDraft<T extends Record<string, unknown>>(
         }
       },
       retry: retryConfig,
-      onError: onSyncError,
+      onError: (err, attempt) => onSyncErrorRef.current?.(err, attempt),
+      onAbandoned: (err) => {
+        if (mountedRef.current) setError(err);
+        statusMachineRef.current.send('SAVE_FAIL');
+      },
     });
     return () => {
       syncQueueRef.current?.cancel();
       syncQueueRef.current = null;
     };
-    // retryConfig is memoized by stringified syncRetry; onSyncError is stable enough
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [disabled, sync, retryConfig, onSyncError]);
+  }, [disabled, hasSync, retryConfig]);
 
   // --- Broadcaster (multi-tab) ---
   const broadcasterRef = useRef<ReturnType<typeof createBroadcaster<T>> | null>(null);
@@ -149,7 +165,14 @@ export function useFormDraft<T extends Record<string, unknown>>(
       if (multiTab === 'last-writer-wins') {
         const resolved = onConflict ? onConflict(valuesRef.current, remote) : 'remote';
         if (resolved === 'remote') setValues(remote);
-        else if (resolved !== 'local') setValues(resolved as T);
+        else if (resolved === 'local') {
+          // keep current — nothing to do
+        } else if (resolved !== null && typeof resolved === 'object') {
+          // Caller returned a merged object; trust it as the resolved state.
+          setValues(resolved as T);
+        }
+        // Any other return (string typo, undefined, primitive) is ignored —
+        // safer than coercing junk into form state.
       } else if (multiTab === 'warn') {
         setOnConflictData(remote);
         statusMachineRef.current.send('CONFLICT');
@@ -164,7 +187,11 @@ export function useFormDraft<T extends Record<string, unknown>>(
       syncDebouncedRef.current?.cancel();
       userTouchedRef.current = false;
       setValues(defaultValues);
+      setPendingChanges(false);
+      setLastSavedAt(null);
+      setError(null);
       void storage.remove(key);
+      statusMachineRef.current.send('RESET');
     });
     b.onDiscarded(() => {
       if (!mountedRef.current) return;
@@ -173,6 +200,9 @@ export function useFormDraft<T extends Record<string, unknown>>(
       syncDebouncedRef.current?.cancel();
       userTouchedRef.current = false;
       setValues(defaultValues);
+      setPendingChanges(false);
+      setError(null);
+      statusMachineRef.current.send('RESET');
     });
     return () => {
       b.close();
@@ -205,7 +235,15 @@ export function useFormDraft<T extends Record<string, unknown>>(
       if (cancelled || !mountedRef.current) return;
       if (raw === null) return;
       const record = raw as StoredRecord<T>;
-      if (typeof record !== 'object' || record === null || !(STORAGE_RECORD_KEY in record)) {
+      // Reject corrupt records: must be a plain object with a numeric __v.
+      // Arrays, Date, strings, and {__v:"1"} all fall through to remove.
+      if (
+        typeof record !== 'object' ||
+        record === null ||
+        Array.isArray(record) ||
+        !(STORAGE_RECORD_KEY in record) ||
+        typeof (record as { __v: unknown }).__v !== 'number'
+      ) {
         void storage.remove(key);
         return;
       }
@@ -223,13 +261,34 @@ export function useFormDraft<T extends Record<string, unknown>>(
 
       if (record.__v !== version) {
         if (migrate) {
-          const migrated = migrate(record.values, record.__v);
+          let migrated: T | null;
+          try {
+            migrated = migrate(record.values, record.__v);
+          } catch (e) {
+            // User migrator threw — don't crash restore. Drop the entry so we
+            // don't loop on the same throw every mount, and surface the error.
+            void storage.remove(key);
+            const err = e instanceof Error ? e : new Error(String(e));
+            if (mountedRef.current) setError(err);
+            // eslint-disable-next-line no-console
+            console.warn(
+              `[formdraft] migrate(fromVersion=${record.__v}) threw for key "${key}"; draft discarded.`,
+              e,
+            );
+            return;
+          }
           if (migrated === null) {
             void storage.remove(key);
             return;
           }
           const validated = validateOrDiscard(mergeExcluded(migrated), schema, key);
-          if (validated !== null && !userTouchedRef.current) setValues(validated);
+          if (validated !== null && !userTouchedRef.current) {
+            setValues(validated);
+            // Persist with the new __v so subsequent mounts don't re-migrate
+            // (non-idempotent migrators would otherwise corrupt data each mount).
+            const stripped = stripExcluded(validated, excludeFieldsRef.current);
+            void storage.write(key, { __v: version, values: stripped } as StoredRecord<T>);
+          }
           return;
         }
         // eslint-disable-next-line no-console
@@ -282,7 +341,10 @@ export function useFormDraft<T extends Record<string, unknown>>(
   );
 
   // syncDebounceMs is dynamic — recreate the debounced fn when it changes so
-  // a new delay actually takes effect. Cancel the old one on dep change.
+  // a new delay actually takes effect. On cleanup, flush() into the queue so
+  // a pending keystroke isn't silently dropped when the delay changes mid-life.
+  // (Real unmount has already cancelled all debounced refs via the mount-effect
+  // cleanup that runs first, so flush() is a no-op in that path.)
   const syncDebouncedRef = useRef<ReturnType<typeof debounce<[T]>> | null>(null);
   useEffect(() => {
     const d = debounce((next: T) => {
@@ -290,7 +352,7 @@ export function useFormDraft<T extends Record<string, unknown>>(
     }, syncDebounceMs);
     syncDebouncedRef.current = d;
     return () => {
-      d.cancel();
+      d.flush();
       syncDebouncedRef.current = null;
     };
   }, [syncDebounceMs]);
@@ -384,11 +446,16 @@ export function useFormDraft<T extends Record<string, unknown>>(
           void storage.remove(key);
           broadcasterRef.current?.broadcastSubmitted();
           syncQueueRef.current?.cancel();
-          setValues(defaultValues);
-          setPendingChanges(false);
-          setLastSavedAt(null);
-          setError(null);
-          statusMachineRef.current.send('RESET');
+          // Long-running submit handlers may resolve after the component
+          // unmounted (user navigated away). Guard all setState calls so we
+          // don't get "setState on unmounted component" warnings.
+          if (mountedRef.current) {
+            setValues(defaultValues);
+            setPendingChanges(false);
+            setLastSavedAt(null);
+            setError(null);
+            statusMachineRef.current.send('RESET');
+          }
           return result;
         } catch (err) {
           if (mountedRef.current) {

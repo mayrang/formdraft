@@ -28,10 +28,13 @@ describe('localStorageAdapter', () => {
     expect(localStorage.getItem('mykey')).toBeNull();
   });
 
-  it('read returns null and warns for invalid JSON in storage', async () => {
+  it('read returns null and warns for invalid JSON in storage; removes the bad entry', async () => {
+    // Regression: previously the bad entry stayed in storage, so every mount
+    // re-parsed and re-warned. Now read() removes it once.
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     localStorage.setItem('formdraft:badkey', '{not json}');
     expect(await localStorageAdapter().read('badkey')).toBeNull();
+    expect(localStorage.getItem('formdraft:badkey')).toBeNull();
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
   });

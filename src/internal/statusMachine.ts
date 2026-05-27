@@ -13,6 +13,7 @@ export type StatusEvent =
 const transitions: Record<FormDraftStatus, Partial<Record<StatusEvent, FormDraftStatus>>> = {
   idle: {
     SAVE_START: 'saving',
+    SAVE_FAIL: 'error', // persist failures happen outside of saving (storage quota etc.)
     OFFLINE: 'offline',
     CONFLICT: 'conflict',
   },
@@ -24,6 +25,7 @@ const transitions: Record<FormDraftStatus, Partial<Record<StatusEvent, FormDraft
   },
   saved: {
     SAVE_START: 'saving',
+    SAVE_FAIL: 'error',
     OFFLINE: 'offline',
     CONFLICT: 'conflict',
     RESET: 'idle',
@@ -38,9 +40,11 @@ const transitions: Record<FormDraftStatus, Partial<Record<StatusEvent, FormDraft
     CONFLICT: 'conflict',
     RESET: 'idle',
   },
+  // No SAVE_START exit: an in-flight sync must NOT silently mask a conflict
+  // warning the user hasn't acknowledged. RESOLVE is the only exit.
   conflict: {
     RESOLVE: 'idle',
-    SAVE_START: 'saving',
+    RESET: 'idle',
   },
 };
 

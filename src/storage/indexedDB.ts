@@ -8,7 +8,7 @@ let dbPromise: Promise<IDBDatabase> | null = null;
 
 function getDb(): Promise<IDBDatabase> {
   if (dbPromise) return dbPromise;
-  dbPromise = new Promise<IDBDatabase>((resolve, reject) => {
+  const p = new Promise<IDBDatabase>((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = () => {
       const db = req.result;
@@ -17,7 +17,13 @@ function getDb(): Promise<IDBDatabase> {
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
-  return dbPromise;
+  // If open fails (Firefox private mode, version mismatch), don't cache the
+  // rejection forever — next call should re-attempt.
+  p.catch(() => {
+    if (dbPromise === p) dbPromise = null;
+  });
+  dbPromise = p;
+  return p;
 }
 
 function tx<T>(mode: IDBTransactionMode, fn: (store: IDBObjectStore) => IDBRequest<T> | void): Promise<T | void> {

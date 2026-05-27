@@ -16,7 +16,9 @@ export function useFormDraftRHF<T extends FieldValues>(
   onConflictData: ReturnType<typeof useFormDraft<T>>['onConflictData'];
   resolveConflict: ReturnType<typeof useFormDraft<T>>['resolveConflict'];
 } {
-  const defaultValues = form.formState.defaultValues as T;
+  // RHF returns undefined when no defaultValues were passed to useForm(). Fall
+  // back to an empty object so set()/patch() spreads don't blow up downstream.
+  const defaultValues = (form.formState.defaultValues ?? ({} as T)) as T;
   const draft = useFormDraft<T>({
     ...options,
     defaultValues,

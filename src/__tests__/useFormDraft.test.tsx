@@ -263,6 +263,83 @@ describe('useFormDraft', () => {
     expect(JSON.parse(stored!)).toMatchObject({ values: { name: 'After' } });
   });
 
+  it('survives inline sync prop (S5 regression: queue not recreated per render)', async () => {
+    // Caller passes a fresh arrow fn each render (the lib's own example did).
+    // Previously this destroyed the syncQueue every render — pending values
+    // and the online listener were lost. Especially fatal across offline→online.
+    const innerSync = vi.fn().mockResolvedValue(undefined);
+    function Probe() {
+      const draft = useFormDraft<V>({
+        key: 'test-key',
+        schema: zodAdapter(Schema),
+        defaultValues: DEFAULTS,
+        storage: localStorageAdapter(),
+        sync: (v) => innerSync(v), // new fn identity every render
+        syncDebounceMs: 50,
+        multiTab: false,
+      });
+      return <button data-testid="set" onClick={() => draft.set('name', 'X')} />;
+    }
+    setOnline(false);
+    const { rerender } = render(<Probe />);
+    act(() => screen.getByTestId('set').click());
+    await vi.advanceTimersByTimeAsync(100);
+    expect(innerSync).not.toHaveBeenCalled();
+    // Force several rerenders to simulate state churn while offline
+    rerender(<Probe />);
+    rerender(<Probe />);
+    rerender(<Probe />);
+    setOnline(true);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(innerSync).toHaveBeenCalledWith({ name: 'X', age: 0 });
+  });
+
+  it('migrate() throws → restore drops draft + setError, does not crash', async () => {
+    localStorage.setItem(
+      'formdraft:test-key',
+      JSON.stringify({ __v: 0, values: { name: 'Old', age: 1 } }),
+    );
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const migrate = vi.fn(() => {
+      throw new Error('migrator boom');
+    });
+    const { Probe } = setup({ version: 1, migrate });
+    render(<Probe />);
+    await vi.advanceTimersByTimeAsync(50);
+    expect(screen.getByTestId('name').textContent).toBe(''); // fell back to defaults
+    expect(localStorage.getItem('formdraft:test-key')).toBeNull(); // bad entry removed
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('successful migrate re-persists with new __v (no re-migrate on next mount)', async () => {
+    localStorage.setItem(
+      'formdraft:test-key',
+      JSON.stringify({ __v: 0, values: { name: 'Migrated', age: 1 } }),
+    );
+    const migrate = vi.fn((stored: unknown) => ({ ...(stored as V), name: (stored as V).name + '!' }));
+    const { Probe } = setup({ version: 1, migrate });
+    render(<Probe />);
+    await waitFor(() =>
+      expect(screen.getByTestId('name').textContent).toBe('Migrated!'),
+    );
+    await vi.advanceTimersByTimeAsync(50);
+    const stored = JSON.parse(localStorage.getItem('formdraft:test-key')!);
+    expect(stored.__v).toBe(1); // re-persisted at current version
+  });
+
+  it('rejects stored records with non-numeric __v', async () => {
+    localStorage.setItem(
+      'formdraft:test-key',
+      JSON.stringify({ __v: '1', values: { name: 'Bad', age: 0 } }),
+    );
+    const { Probe } = setup();
+    render(<Probe />);
+    await vi.advanceTimersByTimeAsync(50);
+    expect(screen.getByTestId('name').textContent).toBe('');
+    expect(localStorage.getItem('formdraft:test-key')).toBeNull();
+  });
+
   it('disabled=true skips persist and sync', async () => {
     const sync = vi.fn();
     const { Probe } = setup({ sync, disabled: true });

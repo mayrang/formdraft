@@ -63,6 +63,25 @@ describe('createStatusMachine', () => {
     expect(seen).toEqual(['saving', 'saved']);
   });
 
+  it('SAVE_FAIL from idle transitions to error (storage quota etc.)', () => {
+    // Persist failures happen outside of saving — previously dropped, leaving
+    // error state set while status indicator still showed idle.
+    const m = createStatusMachine();
+    m.send('SAVE_FAIL');
+    expect(m.getStatus()).toBe('error');
+  });
+
+  it('conflict cannot be silently exited by SAVE_START — only RESOLVE/RESET', () => {
+    // Regression: in-flight sync would mask multi-tab conflict warning before
+    // user acknowledged it. Now SAVE_START is dropped from conflict state.
+    const m = createStatusMachine();
+    m.send('CONFLICT');
+    m.send('SAVE_START');
+    expect(m.getStatus()).toBe('conflict');
+    m.send('RESET');
+    expect(m.getStatus()).toBe('idle');
+  });
+
   it('idle → idle does not notify subscribers', () => {
     const m = createStatusMachine();
     const seen: string[] = [];

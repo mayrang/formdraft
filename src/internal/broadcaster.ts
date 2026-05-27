@@ -31,8 +31,11 @@ export function createBroadcaster<T>(opts: BroadcasterOptions): Broadcaster<T> {
     channel.onmessage = (ev: MessageEvent<BroadcastMessage<T>>) => {
       const msg = ev.data;
       if (!msg || msg.tabId === opts.tabId) return;
+      // All message types carry `version`; mismatch means cross-version tabs.
+      // Drop silently — including submitted/discarded — so an old tab can't
+      // wipe a new tab's draft via a control message it doesn't understand.
+      if ((msg as { version?: number }).version !== protocolVersion) return;
       if (msg.type === 'values-changed') {
-        if ((msg as { version?: number }).version !== protocolVersion) return;
         valuesHandlers.forEach((h) => h(msg.values, msg.ts));
       } else if (msg.type === 'submitted') {
         submittedHandlers.forEach((h) => h());
@@ -40,16 +43,30 @@ export function createBroadcaster<T>(opts: BroadcasterOptions): Broadcaster<T> {
         discardedHandlers.forEach((h) => h());
       }
     };
+    channel.onmessageerror = (ev) => {
+      // eslint-disable-next-line no-console
+      console.warn('[formdraft] broadcaster failed to deserialize a remote message:', ev);
+    };
   }
 
   return {
     broadcastValues(values) {
       if (!channel) return;
+      let cloned: T;
+      try {
+        cloned = safeStructuredClone(values);
+      } catch (e) {
+        // Values contain non-cloneable content (function, Symbol, DOM node, …).
+        // Skip the broadcast — local persist still works — and warn once.
+        // eslint-disable-next-line no-console
+        console.warn('[formdraft] broadcaster: values not cloneable; skipping broadcast:', e);
+        return;
+      }
       const msg: BroadcastMessage<T> = {
         type: 'values-changed',
         tabId: opts.tabId,
         key: opts.key,
-        values: safeStructuredClone(values),
+        values: cloned,
         ts: Date.now(),
         version: protocolVersion,
       };
@@ -62,11 +79,11 @@ export function createBroadcaster<T>(opts: BroadcasterOptions): Broadcaster<T> {
     },
     broadcastSubmitted() {
       if (!channel) return;
-      channel.postMessage({ type: 'submitted', tabId: opts.tabId, key: opts.key });
+      channel.postMessage({ type: 'submitted', tabId: opts.tabId, key: opts.key, version: protocolVersion });
     },
     broadcastDiscarded() {
       if (!channel) return;
-      channel.postMessage({ type: 'discarded', tabId: opts.tabId, key: opts.key });
+      channel.postMessage({ type: 'discarded', tabId: opts.tabId, key: opts.key, version: protocolVersion });
     },
     onValuesChanged(handler) {
       valuesHandlers.push(handler);

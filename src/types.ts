@@ -62,5 +62,5 @@ export type FormDraftResult<T> = {
 
 export type BroadcastMessage<T = unknown> =
   | { type: 'values-changed'; tabId: string; key: string; values: T; ts: number; version: number }
-  | { type: 'submitted'; tabId: string; key: string }
-  | { type: 'discarded'; tabId: string; key: string };
+  | { type: 'submitted'; tabId: string; key: string; version: number }
+  | { type: 'discarded'; tabId: string; key: string; version: number };

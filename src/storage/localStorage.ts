@@ -11,6 +11,8 @@ export function localStorageAdapter(): StorageAdapter {
       try {
         return JSON.parse(raw);
       } catch (e) {
+        // Corrupt entry — remove so we don't re-parse-and-warn on every mount.
+        localStorage.removeItem(PREFIX + key);
         // eslint-disable-next-line no-console
         console.warn(`[formdraft] localStorage adapter: invalid JSON for key "${key}". Discarding.`, e);
         return null;

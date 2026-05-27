@@ -147,6 +147,23 @@ describe('createSyncQueue', () => {
     expect(sync).toHaveBeenLastCalledWith({ x: 2 });
   });
 
+  it('fires onAbandoned when max retries are exhausted', async () => {
+    // Previously, exhausting retries silently dropped pendingValues with no
+    // terminal signal — caller couldn't surface a final failure.
+    const sync = vi.fn().mockRejectedValue(new Error('persistent-fail'));
+    const onAbandoned = vi.fn();
+    const q = createSyncQueue({
+      sync,
+      onAbandoned,
+      retry: { maxAttempts: 2, initialBackoffMs: 100, multiplier: 2, maxBackoffMs: 1000 },
+    });
+    q.enqueue({ x: 1 });
+    await vi.runAllTimersAsync();
+    expect(sync).toHaveBeenCalledTimes(2);
+    expect(onAbandoned).toHaveBeenCalledTimes(1);
+    expect(onAbandoned).toHaveBeenCalledWith(expect.any(Error), { x: 1 });
+  });
+
   it('exposes pending() to inspect whether something is queued', async () => {
     setOnline(false);
     const sync = vi.fn().mockResolvedValue(undefined);

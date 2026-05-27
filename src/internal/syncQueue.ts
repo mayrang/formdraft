@@ -5,6 +5,10 @@ export type SyncQueueOptions<T> = {
   retry: RetryConfig;
   onError?: (error: Error, attempt: number) => void;
   onSuccess?: () => void;
+  // Fires once when all `maxAttempts` retries have been exhausted and the
+  // pending value is being dropped. Caller's last chance to surface the
+  // failure (status pill, toast, manual retry button, etc.).
+  onAbandoned?: (lastError: Error, values: T) => void;
 };
 
 export type SyncQueue<T> = {
@@ -77,8 +81,12 @@ export function createSyncQueue<T>(opts: SyncQueueOptions<T>): SyncQueue<T> {
         );
         schedule(backoff);
       } else {
+        // Out of retries — drop the value. Surface terminal failure to caller
+        // exactly once with the last error so the hook can emit SAVE_FAIL.
+        const droppedValues = values;
         pendingValues = null;
         attempt = 0;
+        opts.onAbandoned?.(err, droppedValues);
       }
     } finally {
       inFlight = false;
