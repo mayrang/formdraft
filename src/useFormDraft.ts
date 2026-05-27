@@ -186,6 +186,18 @@ export function useFormDraft<T extends Record<string, unknown>>(
         void storage.remove(key);
         return;
       }
+      // Excluded fields are NOT in stored data; re-merge from defaults before
+      // validation so the schema (which expects all fields) doesn't reject.
+      const mergeExcluded = (storedVals: unknown): unknown => {
+        if (excludeFields.length === 0) return storedVals;
+        if (typeof storedVals !== 'object' || storedVals === null) return storedVals;
+        const out = { ...defaultValues } as Record<string, unknown>;
+        for (const k of Object.keys(storedVals as object)) {
+          out[k] = (storedVals as Record<string, unknown>)[k];
+        }
+        return out as T;
+      };
+
       if (record.__v !== version) {
         if (migrate) {
           const migrated = migrate(record.values, record.__v);
@@ -193,7 +205,7 @@ export function useFormDraft<T extends Record<string, unknown>>(
             void storage.remove(key);
             return;
           }
-          const validated = validateOrDiscard(migrated, schema, key);
+          const validated = validateOrDiscard(mergeExcluded(migrated), schema, key);
           if (validated !== null) setValues(validated);
           return;
         }
@@ -204,7 +216,7 @@ export function useFormDraft<T extends Record<string, unknown>>(
         void storage.remove(key);
         return;
       }
-      const validated = validateOrDiscard(record.values, schema, key);
+      const validated = validateOrDiscard(mergeExcluded(record.values), schema, key);
       if (validated !== null) setValues(validated);
     })();
     return () => {
@@ -266,8 +278,14 @@ export function useFormDraft<T extends Record<string, unknown>>(
     return () => unregisterDraft(key);
   }, [key, lastSavedAt]);
 
-  // Cleanup on unmount
-  useEffect(() => () => { mountedRef.current = false; }, []);
+  // Track mount status. Re-set to true on each mount so React.StrictMode's
+  // mount→unmount→mount cycle doesn't leave mountedRef stuck at false.
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   // --- Public API ---
   const set = useCallback(

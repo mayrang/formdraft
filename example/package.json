@@ -8,7 +8,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "formdraft": "^0.1.0-rc.1",
+    "formdraft": "file:..",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
     "react-hook-form": "^7.50.0",

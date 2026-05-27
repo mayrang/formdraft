@@ -1,3 +1,4 @@
+import { StrictMode } from 'react';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
@@ -150,6 +151,63 @@ describe('useFormDraft', () => {
     const stored = JSON.parse(localStorage.getItem('formdraft:pwd')!);
     expect(stored.values).toEqual({ email: 'a@b.com' });
     expect(stored.values.password).toBeUndefined();
+  });
+
+  it('restores non-excluded fields after refresh even when excludeFields strips required-by-schema fields', async () => {
+    // Reproduces the bug from v0.1.0-rc.1 where excludeFields broke the entire restore:
+    // - Schema requires `password`
+    // - excludeFields strips it from persist
+    // - On remount, restore validates stored data → fails (password missing) → all data lost
+    const PwdSchema = z.object({ email: z.string(), password: z.string(), name: z.string() });
+
+    // Seed storage as if user typed earlier and password was stripped on persist.
+    localStorage.setItem(
+      'formdraft:pwd-restore',
+      JSON.stringify({ __v: 1, values: { email: 'a@b.com', name: 'Alice' } }),
+    );
+
+    function Probe() {
+      const draft = useFormDraft({
+        key: 'pwd-restore',
+        schema: zodAdapter(PwdSchema),
+        defaultValues: { email: '', password: '', name: '' },
+        storage: localStorageAdapter(),
+        excludeFields: ['password'],
+        syncDebounceMs: 50,
+        multiTab: false,
+      });
+      return (
+        <div>
+          <span data-testid="email">{draft.values.email}</span>
+          <span data-testid="password">{draft.values.password}</span>
+          <span data-testid="name">{draft.values.name}</span>
+        </div>
+      );
+    }
+
+    render(<Probe />);
+    await waitFor(() => {
+      expect(screen.getByTestId('email').textContent).toBe('a@b.com');
+    });
+    expect(screen.getByTestId('name').textContent).toBe('Alice');
+    expect(screen.getByTestId('password').textContent).toBe(''); // not restored (correct)
+  });
+
+  it('persists and restores when wrapped in React.StrictMode (mountedRef regression)', async () => {
+    // StrictMode mounts → unmounts → remounts in dev. Earlier mountedRef pattern only
+    // set false in cleanup, never re-set true on remount, so persist/restore silently
+    // no-op'd. This test guards that regression.
+    const { Probe } = setup();
+    render(
+      <StrictMode>
+        <Probe />
+      </StrictMode>,
+    );
+    act(() => screen.getByTestId('set-name').click());
+    await vi.advanceTimersByTimeAsync(200);
+    const stored = localStorage.getItem('formdraft:test-key');
+    expect(stored).not.toBeNull();
+    expect(JSON.parse(stored!)).toMatchObject({ values: { name: 'Alice' } });
   });
 
   it('disabled=true skips persist and sync', async () => {
