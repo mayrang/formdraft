@@ -199,6 +199,38 @@ describe('createSyncQueue', () => {
     expect(q.pending()).toBe(true);
   });
 
+  it('uses onlineDetector instead of navigator.onLine when provided', async () => {
+    // Detector reports offline → sync deferred even when navigator.onLine=true.
+    let detectorOnline = false;
+    let detectorListener: ((online: boolean) => void) | null = null;
+    const detector = {
+      isOnline: () => detectorOnline,
+      subscribe: (cb: (online: boolean) => void) => {
+        detectorListener = cb;
+        return () => {
+          detectorListener = null;
+        };
+      },
+      destroy: () => {},
+    };
+    setOnline(true); // browser thinks we're online
+    const sync = vi.fn().mockResolvedValue(undefined);
+    const q = createSyncQueue({
+      sync,
+      onlineDetector: detector,
+      retry: { maxAttempts: 3, initialBackoffMs: 100, multiplier: 2, maxBackoffMs: 1000 },
+    });
+    q.enqueue({ x: 1 });
+    await vi.advanceTimersByTimeAsync(50);
+    expect(sync).not.toHaveBeenCalled();
+    // Detector flips to online → queue should drain.
+    detectorOnline = true;
+    detectorListener?.(true);
+    await vi.advanceTimersByTimeAsync(50);
+    expect(sync).toHaveBeenCalledWith({ x: 1 });
+    q.cancel();
+  });
+
   it('exposes pending() to inspect whether something is queued', async () => {
     setOnline(false);
     const sync = vi.fn().mockResolvedValue(undefined);

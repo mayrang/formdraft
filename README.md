@@ -113,9 +113,11 @@ import { localStorageAdapter, sessionStorageAdapter, indexedDBAdapter } from 'fo
 useFormDraft({ ..., storage: indexedDBAdapter() });  // for big forms
 ```
 
-## Captive portal handling
+## Reliable online detection
 
-`navigator.onLine === true` lies on captive portals (hotel WiFi, etc.). Pass a probe to HEAD-check a known reachable URL before each sync:
+`navigator.onLine === true` lies on captive portals (hotel/airport/coffee shop WiFi) and partially-online states (airplane mode disabled but data blocked). formdraft offers two ways to handle this:
+
+### Option 1: per-sync probe (cheap, one-shot)
 
 ```tsx
 useFormDraft({
@@ -127,7 +129,40 @@ useFormDraft({
 });
 ```
 
-When the probe returns `false`, the sync is deferred (not counted as a retry). It re-attempts on the next `online`/`visibilitychange` event, or when `save()` is called.
+Called before each sync attempt. Falsy/throwing → defer (not counted as a failed retry). Retries on the next `online`/`visibilitychange` event or when `save()` is called.
+
+Use when sync attempts are rare and you want minimal overhead.
+
+### Option 2: heartbeat detector (cached, background)
+
+```tsx
+import { createHeartbeatDetector, useFormDraft } from 'formdraft';
+
+const detector = createHeartbeatDetector({
+  url: '/api/health',     // HEAD-able URL
+  intervalMs: 30_000,     // default 30s
+  timeoutMs: 5_000,       // default 5s
+});
+
+function MyForm() {
+  useFormDraft({
+    // ...
+    onlineDetector: detector,
+  });
+  // ...
+}
+
+// On app shutdown:
+// detector.destroy();
+```
+
+The detector pings in the background, caches the result, and is consulted **synchronously** by the sync queue (zero added latency per sync). Online transitions also wake any pending retry immediately — no polling required. While the tab is hidden it stops scheduling new pings (saves battery, no service-worker wakeups); any ping that was already in flight and the browser's own `online`/`offline` events still update state. It re-probes on `online`, flips offline instantly on `offline`, and treats any received HTTP response as reachable (so a 500 doesn't get mis-flagged as a network outage).
+
+**Worst-case staleness**: if the URL hangs indefinitely (server slow, no response), the detector keeps the previous state until `timeoutMs` aborts the request (default 5s), then flips offline. Don't point the URL at an endpoint served by your service worker's offline cache — a cached 200 will make the detector lie during real outages.
+
+Use when many sync attempts happen and you don't want fetch latency on each.
+
+**Stacking both** is supported — the detector gates the queue's first attempt; the probe runs per individual attempt.
 
 ## Custom storage adapter
 

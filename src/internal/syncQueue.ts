@@ -1,3 +1,4 @@
+import type { OnlineDetector } from './heartbeatDetector';
 import type { RetryConfig } from '../types';
 
 export type SyncQueueOptions<T> = {
@@ -15,6 +16,10 @@ export type SyncQueueOptions<T> = {
   // the next online event or via the user's own save() call. Throwing is
   // treated the same as returning false.
   connectivityProbe?: () => Promise<boolean>;
+  // Optional online detector (typically createHeartbeatDetector). When
+  // provided, replaces navigator.onLine + window 'online'/'visibilitychange'
+  // listeners — the detector becomes the authoritative source of reachability.
+  onlineDetector?: OnlineDetector;
 };
 
 export type SyncQueue<T> = {
@@ -40,6 +45,15 @@ export function createSyncQueue<T>(opts: SyncQueueOptions<T>): SyncQueue<T> {
   };
 
   const hasWindow = typeof window !== 'undefined';
+  // Both channels trigger re-attempts. Detector decides whether the attempt
+  // actually fires (via isOnline() inside attemptSync), so the listeners are
+  // always safe to keep — they only kick the schedule, not the gate.
+  // Visibility resume is especially important: detector's own ping may not
+  // flip state (already online), so without this listener the queue would
+  // never retry a pending value after tab returns.
+  const unsubDetector = opts.onlineDetector?.subscribe((isOnline) => {
+    if (isOnline) handleOnline();
+  });
   if (hasWindow) {
     window.addEventListener('online', handleOnline);
     window.addEventListener('visibilitychange', handleVisibility);
@@ -57,7 +71,12 @@ export function createSyncQueue<T>(opts: SyncQueueOptions<T>): SyncQueue<T> {
     if (cancelled) return;
     if (inFlight) return; // re-entry guard: flush() called while a timer attempt is mid-flight
     if (pendingValues === null) return;
-    if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+    // Reachability: detector wins if present; fall back to navigator.onLine.
+    if (opts.onlineDetector) {
+      if (!opts.onlineDetector.isOnline()) return;
+    } else if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      return;
+    }
 
     // Captive portal / lying-network probe. Caller's responsibility to make
     // it cheap (HEAD a small endpoint, ~50ms). Skip attempt but DON'T count
@@ -124,6 +143,7 @@ export function createSyncQueue<T>(opts: SyncQueueOptions<T>): SyncQueue<T> {
       attempt = 0;
       if (timer) clearTimeout(timer);
       timer = null;
+      unsubDetector?.();
       if (hasWindow) {
         window.removeEventListener('online', handleOnline);
         window.removeEventListener('visibilitychange', handleVisibility);
