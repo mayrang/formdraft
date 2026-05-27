@@ -8,3 +8,6 @@ coverage/
 example/node_modules/
 example/dist/
 .size-limit-cache/
+playwright-report/
+test-results/
+playwright/.cache/

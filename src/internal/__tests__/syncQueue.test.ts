@@ -164,6 +164,41 @@ describe('createSyncQueue', () => {
     expect(onAbandoned).toHaveBeenCalledWith(expect.any(Error), { x: 1 });
   });
 
+  it('connectivityProbe returning false defers sync without counting as a failure', async () => {
+    // Captive portal: navigator.onLine is true but real reachability is dead.
+    // Probe returns false → attempt is skipped, attempt counter not incremented,
+    // pendingValues stays so a later online/visibility event can retry.
+    const sync = vi.fn().mockResolvedValue(undefined);
+    let reachable = false;
+    const q = createSyncQueue({
+      sync,
+      retry: { maxAttempts: 2, initialBackoffMs: 100, multiplier: 2, maxBackoffMs: 1000 },
+      connectivityProbe: () => Promise.resolve(reachable),
+    });
+    q.enqueue({ x: 1 });
+    await vi.runAllTimersAsync();
+    expect(sync).not.toHaveBeenCalled();
+    expect(q.pending()).toBe(true); // value still queued
+    // Reachability returns — next online event triggers schedule(0)
+    reachable = true;
+    window.dispatchEvent(new Event('online'));
+    await vi.runAllTimersAsync();
+    expect(sync).toHaveBeenCalledWith({ x: 1 });
+  });
+
+  it('connectivityProbe throwing is treated as not-reachable', async () => {
+    const sync = vi.fn().mockResolvedValue(undefined);
+    const q = createSyncQueue({
+      sync,
+      retry: { maxAttempts: 2, initialBackoffMs: 100, multiplier: 2, maxBackoffMs: 1000 },
+      connectivityProbe: () => Promise.reject(new Error('probe blew up')),
+    });
+    q.enqueue({ x: 1 });
+    await vi.runAllTimersAsync();
+    expect(sync).not.toHaveBeenCalled();
+    expect(q.pending()).toBe(true);
+  });
+
   it('exposes pending() to inspect whether something is queued', async () => {
     setOnline(false);
     const sync = vi.fn().mockResolvedValue(undefined);

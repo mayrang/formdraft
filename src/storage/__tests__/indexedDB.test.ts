@@ -1,9 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { indexedDBAdapter, _resetIndexedDBForTests } from '../indexedDB';
+import { indexedDBAdapter } from '../indexedDB';
 
 describe('indexedDBAdapter', () => {
   beforeEach(async () => {
-    _resetIndexedDBForTests();
     const a = indexedDBAdapter();
     if (a.clear) await a.clear();
   });

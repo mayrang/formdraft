@@ -9,6 +9,12 @@ export type SyncQueueOptions<T> = {
   // pending value is being dropped. Caller's last chance to surface the
   // failure (status pill, toast, manual retry button, etc.).
   onAbandoned?: (lastError: Error, values: T) => void;
+  // Optional probe to detect captive portals and other lying-network states
+  // where navigator.onLine === true but actual reachability fails. Called
+  // before each sync attempt. Return false to defer; the queue retries on
+  // the next online event or via the user's own save() call. Throwing is
+  // treated the same as returning false.
+  connectivityProbe?: () => Promise<boolean>;
 };
 
 export type SyncQueue<T> = {
@@ -52,6 +58,20 @@ export function createSyncQueue<T>(opts: SyncQueueOptions<T>): SyncQueue<T> {
     if (inFlight) return; // re-entry guard: flush() called while a timer attempt is mid-flight
     if (pendingValues === null) return;
     if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+
+    // Captive portal / lying-network probe. Caller's responsibility to make
+    // it cheap (HEAD a small endpoint, ~50ms). Skip attempt but DON'T count
+    // as a failure — it's a reachability question, not a sync failure.
+    if (opts.connectivityProbe) {
+      let reachable = false;
+      try {
+        reachable = await opts.connectivityProbe();
+      } catch {
+        reachable = false;
+      }
+      if (cancelled) return;
+      if (!reachable) return;
+    }
 
     const values = pendingValues;
     inFlight = true;

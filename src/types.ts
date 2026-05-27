@@ -43,6 +43,13 @@ export type FormDraftOptions<T> = {
   version?: number;
   migrate?: (stored: unknown, fromVersion: number) => T | null;
   disabled?: boolean;
+  // Probe called before each sync attempt to detect captive-portal /
+  // lying-network states where navigator.onLine === true but real
+  // reachability fails. Return false to defer the sync (it will retry on
+  // the next online/visibility event or when save() is called). Throwing
+  // is treated as `false`. Keep the probe cheap — it runs on every
+  // attempt, including retries.
+  connectivityProbe?: () => Promise<boolean>;
 };
 
 export type FormDraftResult<T> = {

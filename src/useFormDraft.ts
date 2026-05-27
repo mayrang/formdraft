@@ -57,6 +57,7 @@ export function useFormDraft<T extends Record<string, unknown>>(
     version = 1,
     migrate,
     disabled = false,
+    connectivityProbe,
   } = options;
 
   const [values, setValues] = useState<T>(defaultValues);
@@ -115,6 +116,8 @@ export function useFormDraft<T extends Record<string, unknown>>(
   syncRef.current = sync;
   const onSyncErrorRef = useRef(onSyncError);
   onSyncErrorRef.current = onSyncError;
+  const connectivityProbeRef = useRef(connectivityProbe);
+  connectivityProbeRef.current = connectivityProbe;
   const hasSync = sync !== undefined && sync !== null;
 
   const syncQueueRef = useRef<ReturnType<typeof createSyncQueue<T>> | null>(null);
@@ -145,6 +148,15 @@ export function useFormDraft<T extends Record<string, unknown>>(
       onAbandoned: (err) => {
         if (mountedRef.current) setError(err);
         statusMachineRef.current.send('SAVE_FAIL');
+      },
+      // Always pass a probe wrapper so adding/removing the user probe later
+      // takes effect without recreating the queue. When user probe is absent,
+      // the wrapper short-circuits to true (reachable) so the queue behaves
+      // identically to having no probe.
+      connectivityProbe: async () => {
+        const probe = connectivityProbeRef.current;
+        if (!probe) return true;
+        return probe();
       },
     });
     return () => {

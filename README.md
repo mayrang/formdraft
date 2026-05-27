@@ -7,7 +7,7 @@
 [![license](https://img.shields.io/npm/l/formdraft)](LICENSE)
 [![zero deps](https://img.shields.io/badge/runtime%20deps-0-success)](#zero-runtime-dependencies)
 
-> ⚠️ **v0.1.0-rc.1 (release candidate).** Code-complete with 74 unit tests. Looking for production feedback before v0.1.0 stable. Try it, report bugs at https://github.com/mayrang/formdraft/issues.
+> ⚠️ **v0.1.0-rc.2 (release candidate).** Code-complete with 94 unit tests + 21 Playwright e2e tests (Chromium / Firefox / WebKit). Looking for production feedback before v0.1.0 stable. Try it, report bugs at https://github.com/mayrang/formdraft/issues.
 
 ![demo](docs/assets/demo.gif)
 
@@ -76,7 +76,7 @@ return <form>{/* form.register, etc. */}<span>{status}</span></form>;
 | Refresh loses 20 minutes of typing | localStorage persist + mount restore |
 | Server save fails silently | retry queue with exponential backoff |
 | Offline write then reconnect | `online` + `visibilitychange` flush |
-| Captive portal (`onLine=true` but no internet) | actual fetch determines success |
+| Captive portal (`onLine=true` but no internet) | pluggable `connectivityProbe` HEAD-checks a known URL before each sync |
 | Two tabs editing same draft | BroadcastChannel + `multiTab='warn'` |
 | Tab A submits, Tab B keeps stale draft | submit broadcast → all tabs discard |
 | Component unmounts mid-sync | guarded; no setState-on-unmounted warnings |
@@ -113,7 +113,23 @@ import { localStorageAdapter, sessionStorageAdapter, indexedDBAdapter } from 'fo
 useFormDraft({ ..., storage: indexedDBAdapter() });  // for big forms
 ```
 
-Or write your own:
+## Captive portal handling
+
+`navigator.onLine === true` lies on captive portals (hotel WiFi, etc.). Pass a probe to HEAD-check a known reachable URL before each sync:
+
+```tsx
+useFormDraft({
+  // ...
+  connectivityProbe: () =>
+    fetch('/api/ping', { method: 'HEAD' })
+      .then((r) => r.ok)
+      .catch(() => false),
+});
+```
+
+When the probe returns `false`, the sync is deferred (not counted as a retry). It re-attempts on the next `online`/`visibilitychange` event, or when `save()` is called.
+
+## Custom storage adapter
 
 ```tsx
 const customAdapter: StorageAdapter = {
@@ -123,6 +139,21 @@ const customAdapter: StorageAdapter = {
   async remove(key) { /* ... */ },
 };
 ```
+
+## Reading status from anywhere in the tree
+
+You don't always want to drill the `draft` object down to a deep child just to render a "Saving…" pill in a corner. Subscribe to any active `useFormDraft` instance by its `key`:
+
+```tsx
+import { useFormDraftStatus } from 'formdraft';
+
+function SavingIndicator() {
+  const { status, lastSavedAt } = useFormDraftStatus('profile-form');
+  return <span>{status === 'saved' ? `Saved ${lastSavedAt?.toLocaleTimeString()}` : status}</span>;
+}
+```
+
+Backed by `useSyncExternalStore`; SSR-safe (renders `idle` on the server).
 
 ## Multi-tab strategies
 
@@ -189,11 +220,11 @@ A: No. formdraft uses BroadcastChannel, navigator.onLine, IndexedDB — all brow
 
 ## Status
 
-- **v0.1.0-rc.0** on [npm](https://www.npmjs.com/package/formdraft) (RC — looking for production feedback)
-- 74 unit tests across 14 modules
-- **~3.4 KB brotli** (8 KB CI gate)
+- **v0.1.0-rc.1** on [npm](https://www.npmjs.com/package/formdraft) (RC — looking for production feedback)
+- 94 unit tests + 21 Playwright e2e (7 headline scenarios × Chromium / Firefox / WebKit)
+- **~3.85 KB brotli** (8 KB CI gate)
 - React 18+; Browser support Chrome/Edge 88+, Firefox 78+, Safari 15.4+
-- iOS Safari: multi-tab and offline tested
+- WebKit (iOS Safari engine): persist, restore, discard race, offline queue, submit broadcast all verified e2e
 - 0 runtime dependencies
 
 ## License
