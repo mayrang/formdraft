@@ -299,6 +299,68 @@ Returns `undefined` when no instance with that key is currently mounted. The han
 | `'manual'` | Fires `onConflict`, library does nothing automatic |
 | `false` | Disables multi-tab (no BroadcastChannel overhead) |
 
+## Conflict UI
+
+When `multiTab: 'warn'` fires a conflict, `draft.onConflictData` holds the remote values and `draft.resolveConflict` accepts `'local' | 'remote' | merged`. Building the merge UI by hand is the same code in every app, so formdraft ships two helpers from the `formdraft/ui` subpath (separate chunk — main bundle is unaffected).
+
+### Drop-in: `<ConflictDialog>`
+
+Renders a modal dialog showing only the fields that differ, with per-field "Yours / Other tab" buttons and "Keep all mine / Take all theirs" shortcuts. Renders `null` when there is no conflict, so you can mount it unconditionally:
+
+```tsx
+import { ConflictDialog } from 'formdraft/ui';
+
+function ProfileForm() {
+  const draft = useFormDraft({ /* ... */ });
+  return (
+    <>
+      {/* your form */}
+      <ConflictDialog draft={draft} />
+    </>
+  );
+}
+```
+
+Optional props: `title`, `fieldLabels` (per-field display names), `formatValue` (custom value renderer).
+
+### Headless: `<ConflictResolver>`
+
+Same orchestration with a render-prop API, so you bring your own markup:
+
+```tsx
+import { ConflictResolver } from 'formdraft/ui';
+
+{draft.onConflictData && (
+  <ConflictResolver
+    local={draft.values}
+    remote={draft.onConflictData}
+    onResolve={draft.resolveConflict}
+    renderField={({ name, localValue, remoteValue, pickLocal, pickRemote, picked }) => (
+      <div>
+        <strong>{name}</strong>
+        <button onClick={pickLocal} aria-pressed={picked === 'local'}>
+          Mine: {String(localValue)}
+        </button>
+        <button onClick={pickRemote} aria-pressed={picked === 'remote'}>
+          Theirs: {String(remoteValue)}
+        </button>
+      </div>
+    )}
+  >
+    {({ fields, apply, canApply, pendingCount }) => (
+      <div>
+        {fields}
+        <button onClick={apply} disabled={!canApply}>
+          {pendingCount === 0 ? 'Apply' : `Apply (${pendingCount} left)`}
+        </button>
+      </div>
+    )}
+  </ConflictResolver>
+)}
+```
+
+Diffing is shallow object-equality (`Object.is` per key) — sufficient for v0.2. Deep diff and string char-level diff are tracked for later.
+
 ## Zero runtime dependencies
 
 formdraft has **no** runtime dependencies. Only peer deps (which you'd install anyway): `react`, optionally `react-hook-form`, optionally `zod`.

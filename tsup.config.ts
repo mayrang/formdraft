@@ -6,6 +6,7 @@ export default defineConfig({
     'rhf/index': 'src/rhf/index.ts',
     'formik/index': 'src/formik/index.ts',
     'tanstack-form/index': 'src/tanstack-form/index.ts',
+    'ui/index': 'src/ui/index.ts',
     'storage/indexedDB': 'src/storage/indexedDB.ts',
     'storage/sessionStorage': 'src/storage/sessionStorage.ts',
   },
