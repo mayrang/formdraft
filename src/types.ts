@@ -14,7 +14,17 @@ export type StorageAdapter = {
   clear?(): Promise<void>;
 };
 
+/**
+ * Schema validator interface. The `__formdraft` brand prevents raw Zod
+ * schemas (which structurally match `.parse` / `.safeParse`) from silently
+ * satisfying this type — users must go through `zodAdapter(schema)` so the
+ * adapter can normalize ZodError → Error and add any future shape changes.
+ *
+ * To write a custom adapter (yup, valibot, hand-rolled), include
+ * `__formdraft: true` literally on the returned object.
+ */
 export type SchemaValidator<T> = {
+  readonly __formdraft: true;
   parse(input: unknown): T;
   safeParse(input: unknown): { success: true; data: T } | { success: false; error: Error };
 };
@@ -53,7 +63,12 @@ export type FormDraftOptions<T> = {
 };
 
 export type FormDraftResult<T> = {
-  values: T;
+  /**
+   * Current form values. Read-only at the type level — mutate via `set()` or
+   * `patch()`. Direct mutation (`draft.values.name = 'X'`) would bypass the
+   * persist/sync pipeline and cause silent state drift.
+   */
+  readonly values: Readonly<T>;
   set<K extends keyof T>(field: K, value: T[K]): void;
   patch(partial: Partial<T>): void;
   status: FormDraftStatus;

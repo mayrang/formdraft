@@ -7,6 +7,7 @@ type ZodLike<T> = {
 
 export function zodAdapter<T>(zodSchema: ZodLike<T>): SchemaValidator<T> {
   return {
+    __formdraft: true,
     parse: (input) => zodSchema.parse(input),
     safeParse: (input) => {
       const result = zodSchema.safeParse(input);

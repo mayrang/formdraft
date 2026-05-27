@@ -212,6 +212,21 @@ A: localStorage handles up to ~5 MB synchronously; IndexedDB is recommended for 
 **Q: Does this work with Next.js App Router / SSR?**
 A: Yes. The hook does nothing during SSR (no storage reads on server). On client mount it restores. Set `disabled={true}` if you need to skip even client-side restore (e.g., for privacy-mode pages).
 
+Put `useFormDraft` inside a Client Component (file starting with `'use client'`). Server Components can then import that Client Component normally:
+
+```tsx
+// app/profile/ProfileForm.tsx
+'use client';
+import { useFormDraft, zodAdapter, localStorageAdapter } from 'formdraft';
+// ...
+
+// app/profile/page.tsx (Server Component — no 'use client')
+import { ProfileForm } from './ProfileForm';
+export default function Page() { return <ProfileForm />; }
+```
+
+Verified end-to-end against Next.js 14 App Router: no SSR crash, no hydration mismatch, `disabled={true}` short-circuits client-side restore.
+
 **Q: How is this different from Zustand persist or redux-persist?**
 A: Those are generic state-persistence libraries — they handle persist + restore but not the rest: server sync, offline queue, multi-tab conflict, status UI, schema migration, sensitive-field exclusion. You can combine them with workbox-background-sync but you reinvent ~700 LOC of glue per app. formdraft is that glue, packaged.
 
