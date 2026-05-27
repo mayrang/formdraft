@@ -191,7 +191,7 @@ export default function WizardPage() {
         <footer className="footer">
           <p>
             Built with <a className="link" href="https://www.npmjs.com/package/formdraft">formdraft</a>
-            {' · '}zero runtime deps · 3.4 KB brotli
+            {' · '}zero runtime deps · 5.4 KB brotli
           </p>
         </footer>
       </div>

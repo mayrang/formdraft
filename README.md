@@ -22,11 +22,11 @@ When your user fills out a long form, the form survives:
 
 ```bash
 npm install formdraft
-# peers (you probably already have these):
-npm install react react-hook-form zod
+# peer: react is required. Add whichever form library + validator you already use:
+npm install react react-hook-form zod          # or formik / @tanstack/react-form
 ```
 
-`react-hook-form` and `zod` are optional peer dependencies. Use only what you need.
+Only `react` is required. `react-hook-form`, `formik`, `@tanstack/react-form`, and `zod` are **optional** peer dependencies — install only what you actually use.
 
 ## Quick start
 
@@ -145,7 +145,7 @@ formdraft is that stack, packaged. With the 7 platform-quirk traps AI assistants
 
 | Library | Status | Persist | Restore | Server sync | Offline queue | Multi-tab | Status UI | IndexedDB | Bundle |
 |---|---|---|---|---|---|---|---|---|---|
-| **formdraft** | active | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | 3.4 KB |
+| **formdraft** | active | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | 5.4 KB |
 | react-hook-form-persist | dead 2022 | ✓ | ✓ | — | — | — | — | — | ~2 KB |
 | formik-persist | dead 2018 | ✓ | ✓ | — | — | — | — | — | ~2 KB |
 | react-autosave | partial | — | — | ✓ | — | — | — | — | ~3 KB |
@@ -363,9 +363,9 @@ Diffing is shallow object-equality (`Object.is` per key) — sufficient for v0.2
 
 ## Zero runtime dependencies
 
-formdraft has **no** runtime dependencies. Only peer deps (which you'd install anyway): `react`, optionally `react-hook-form`, optionally `zod`.
+formdraft has **no** runtime dependencies. Only peer deps (which you'd install anyway): `react`, optionally one of `react-hook-form` / `formik` / `@tanstack/react-form`, optionally `zod`.
 
-Bundle target: **≤ 8 KB gzipped** (enforced in CI).
+Bundle target: **≤ 8 KB brotli** (enforced in CI; current main bundle is ~5.4 KB).
 
 ## Security model
 
@@ -375,7 +375,7 @@ formdraft trusts **same-origin code**. Concretely:
 - This is intentional — multi-tab coordination on the same origin is the headline feature. Cross-origin BroadcastChannels are already impossible per the web platform.
 - Stored data goes through your schema (`zod` or compatible) on restore. Malicious JSON with unknown keys or wrong types is discarded; **prototype pollution attacks via `__proto__` keys are neutralized** by the schema parse step. If you replace Zod with a less strict validator, you take on that responsibility.
 
-Threats out of scope for v0.1:
+Threats out of scope:
 - Cryptographically signing messages between tabs (e.g., HMAC) — would require key distribution; not worth the complexity for the same-origin trust boundary.
 - Rate-limiting hostile broadcast spam.
 
@@ -441,7 +441,7 @@ Verified end-to-end against Next.js 14 App Router: no SSR crash, no hydration mi
 A: Those are generic state-persistence libraries — they handle persist + restore but not the rest: server sync, offline queue, multi-tab conflict, status UI, schema migration, sensitive-field exclusion. You can combine them with workbox-background-sync but you reinvent ~700 LOC of glue per app. formdraft is that glue, packaged.
 
 **Q: What about React Native?**
-A: No. formdraft uses BroadcastChannel, navigator.onLine, IndexedDB — all browser APIs. RN port would need entirely different storage + sync layer. Out of scope for v0.1.
+A: No. formdraft uses BroadcastChannel, navigator.onLine, IndexedDB — all browser APIs. RN port would need entirely different storage + sync layer. Out of scope.
 
 ## Status
 
