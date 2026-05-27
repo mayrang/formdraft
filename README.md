@@ -266,6 +266,30 @@ function SavingIndicator() {
 
 Backed by `useSyncExternalStore`; SSR-safe (renders `idle` on the server).
 
+## External control (`getFormDraft`)
+
+Sometimes the save/discard buttons live outside the form — a modal's header bar, a nav guard, a "discard after timeout" hook. `getFormDraft` looks up a mounted instance by its `key` and returns an imperative handle:
+
+```tsx
+import { getFormDraft } from 'formdraft';
+
+// Outside React (route guard, beforeunload listener, dev tools, etc.)
+const handle = getFormDraft<MyFormValues>('profile-form');
+if (handle?.getPendingChanges()) {
+  // warn the user they have unsaved changes
+}
+await handle?.save();
+handle?.discard();
+
+// As a submit handler from a header button:
+const submit = handle?.submit(async (values) => {
+  await api.update(values);
+});
+await submit?.();
+```
+
+Returns `undefined` when no instance with that key is currently mounted. The handle's getters always return the **current** state, not a snapshot from when you called `getFormDraft`. For reactive subscription inside a component, use `useFormDraftStatus(key)` instead.
+
 ## Multi-tab strategies
 
 | Strategy | What happens on remote change |

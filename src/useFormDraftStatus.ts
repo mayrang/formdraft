@@ -18,13 +18,12 @@ export function useFormDraftStatus(key: string): Snapshot {
 
   const subscribe = useCallback(
     (cb: () => void) => {
-      const unsubRegistry = subscribeRegistry(key, cb);
-      const entry = getDraft(key);
-      const unsubMachine = entry?.statusMachine.subscribe(cb) ?? (() => {});
-      return () => {
-        unsubRegistry();
-        unsubMachine();
-      };
+      // Single channel: the host useFormDraft routes its statusMachine
+      // transitions through notifySubscribers(key), so we don't need to
+      // separately subscribe to entry.statusMachine here (which would
+      // capture the entry-at-subscribe-time and miss later registrations
+      // when two instances share a key).
+      return subscribeRegistry(key, cb);
     },
     [key],
   );
@@ -38,7 +37,10 @@ export function useFormDraftStatus(key: string): Snapshot {
       return DEFAULT_SNAPSHOT;
     }
     const status = entry.statusMachine.getStatus();
-    const lastSavedMs = entry.lastSavedAt?.getTime() ?? null;
+    // Read via ref (always current). The entry's snapshot field used to be
+    // here, but that required unregister→register on every save and flickered
+    // subscribers through DEFAULT_SNAPSHOT.
+    const lastSavedMs = entry.lastSavedAtRef.current?.getTime() ?? null;
     const c = cacheRef.current;
     if (c.status === status && c.lastSavedMs === lastSavedMs) return c.snapshot;
     const snapshot: Snapshot = {
