@@ -15,7 +15,7 @@ const DEFAULTS: V = { name: '', age: 0 };
 
 function setup(props: Partial<Parameters<typeof useFormDraft<V>>[0]> = {}) {
   const sync = props.sync ?? vi.fn().mockResolvedValue(undefined);
-  function Probe() {
+  function Inner() {
     const draft = useFormDraft<V>({
       key: 'test-key',
       schema: zodAdapter(Schema),
@@ -34,6 +34,16 @@ function setup(props: Partial<Parameters<typeof useFormDraft<V>>[0]> = {}) {
         <button data-testid="save" onClick={() => draft.save()} />
         <button data-testid="discard" onClick={() => draft.discard()} />
       </div>
+    );
+  }
+  // Wrap in StrictMode by default so every test exercises the double-mount
+  // cycle. The original 75-test suite missed two real bugs (mountedRef,
+  // restore race) because tests didn't run under StrictMode.
+  function Probe() {
+    return (
+      <StrictMode>
+        <Inner />
+      </StrictMode>
     );
   }
   return { sync, Probe };

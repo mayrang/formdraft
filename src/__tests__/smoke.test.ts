@@ -6,12 +6,15 @@ describe('vitest harness', () => {
     expect(typeof document).toBe('object');
   });
 
-  it('BroadcastChannel shim works between two channels', () => {
+  it('BroadcastChannel shim works between two channels', async () => {
     const received: unknown[] = [];
     const a = new BroadcastChannel('test');
     const b = new BroadcastChannel('test');
     b.onmessage = (ev) => received.push(ev.data);
     a.postMessage({ x: 1 });
+    // Shim dispatches via queueMicrotask (matching real browser behavior);
+    // flush the microtask queue before asserting.
+    await Promise.resolve();
     expect(received).toEqual([{ x: 1 }]);
     a.close();
     b.close();

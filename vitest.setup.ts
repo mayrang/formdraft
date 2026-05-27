@@ -1,17 +1,24 @@
 import 'fake-indexeddb/auto';
-import { vi } from 'vitest';
+import { afterEach, vi } from 'vitest';
 
-// jsdom does not implement BroadcastChannel. Provide a minimal same-realm shim.
-// Always install our shim: Node.js exposes its own BroadcastChannel in the jsdom
-// environment, but it dispatches messages asynchronously (via the event loop),
-// which makes synchronous test assertions fail. Override unconditionally so tests
-// can rely on synchronous delivery.
+// Clear spy call records between tests so per-test spy state doesn't leak.
+// clearAllMocks (not restoreAllMocks/resetAllMocks) preserves the module-level
+// console.error filter installed below; restoring/resetting it would re-surface
+// React 18's "not wrapped in act" warnings or drop the filter entirely.
+afterEach(() => {
+  vi.clearAllMocks();
+});
+
+// jsdom does not implement BroadcastChannel. Provide a same-realm shim that
+// mirrors the real browser's ASYNC microtask dispatch — earlier sync version
+// hid every race between postMessage and a subsequent state update.
 {
   const channels = new Map<string, Set<MockChannel>>();
 
   class MockChannel {
     readonly name: string;
     onmessage: ((ev: MessageEvent) => void) | null = null;
+    onmessageerror: ((ev: MessageEvent) => void) | null = null;
     private listeners = new Set<(ev: MessageEvent) => void>();
     private closed = false;
 
@@ -26,12 +33,17 @@ import { vi } from 'vitest';
       const others = channels.get(this.name);
       if (!others) return;
       const cloned = structuredClone(data);
-      for (const ch of others) {
-        if (ch === this || ch.closed) continue;
-        const ev = new MessageEvent('message', { data: cloned });
-        ch.onmessage?.(ev);
-        ch.listeners.forEach((l) => l(ev));
-      }
+      // Snapshot the receivers before the microtask so a close() during
+      // dispatch can't mutate the iteration.
+      const recipients = Array.from(others).filter((ch) => ch !== this && !ch.closed);
+      queueMicrotask(() => {
+        for (const ch of recipients) {
+          if (ch.closed) continue;
+          const ev = new MessageEvent('message', { data: cloned });
+          ch.onmessage?.(ev);
+          ch.listeners.forEach((l) => l(ev));
+        }
+      });
     }
 
     addEventListener(type: 'message', listener: (ev: MessageEvent) => void): void {

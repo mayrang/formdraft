@@ -1,3 +1,4 @@
+import { StrictMode } from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useForm } from 'react-hook-form';
@@ -5,10 +6,11 @@ import { z } from 'zod';
 import { useFormDraftRHF } from '../useFormDraftRHF';
 import { zodAdapter } from '../../internal/schemaValidation';
 import { localStorageAdapter } from '../../storage/localStorage';
+import { _clearRegistryForTests } from '../../internal/registry';
 
 const Schema = z.object({ name: z.string() });
 
-function Probe({ onSync }: { onSync: ReturnType<typeof vi.fn> }) {
+function Inner({ onSync }: { onSync: ReturnType<typeof vi.fn> }) {
   const form = useForm({ defaultValues: { name: '' } });
   const { status } = useFormDraftRHF(form, {
     key: 'rhf-test',
@@ -26,10 +28,19 @@ function Probe({ onSync }: { onSync: ReturnType<typeof vi.fn> }) {
   );
 }
 
+function Probe(props: { onSync: ReturnType<typeof vi.fn> }) {
+  return (
+    <StrictMode>
+      <Inner {...props} />
+    </StrictMode>
+  );
+}
+
 describe('useFormDraftRHF', () => {
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     localStorage.clear();
+    _clearRegistryForTests();
   });
   afterEach(() => vi.useRealTimers());
 

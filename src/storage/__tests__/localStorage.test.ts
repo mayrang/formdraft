@@ -39,14 +39,15 @@ describe('localStorageAdapter', () => {
     warn.mockRestore();
   });
 
-  it('write surfaces quota-exceeded as a thrown error', async () => {
+  it('write surfaces QuotaExceededError as a thrown error', async () => {
+    // JSDOM doesn't enforce localStorage quota, so simulating "write 11MB"
+    // silently succeeds and proves nothing. Force-throw setItem to verify
+    // the adapter actually propagates the error instead of swallowing it.
+    const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('QuotaExceededError', 'QuotaExceededError');
+    });
     const a = localStorageAdapter();
-    const big = 'x'.repeat(11 * 1024 * 1024);
-    try {
-      await a.write('big', big);
-      expect(typeof big).toBe('string');
-    } catch (e) {
-      expect(e).toBeInstanceOf(Error);
-    }
+    await expect(a.write('big', { x: 1 })).rejects.toThrow(/QuotaExceeded/);
+    spy.mockRestore();
   });
 });
