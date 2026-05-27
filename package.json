@@ -17,6 +17,11 @@
       "import": "./dist/rhf/index.mjs",
       "require": "./dist/rhf/index.js"
     },
+    "./formik": {
+      "types": "./dist/formik/index.d.ts",
+      "import": "./dist/formik/index.mjs",
+      "require": "./dist/formik/index.js"
+    },
     "./storage/indexedDB": {
       "types": "./dist/storage/indexedDB.d.ts",
       "import": "./dist/storage/indexedDB.mjs",
@@ -46,10 +51,14 @@
   "peerDependencies": {
     "react": ">=18",
     "react-hook-form": ">=7.0.0",
+    "formik": ">=2.4.0",
     "zod": ">=3.0.0"
   },
   "peerDependenciesMeta": {
     "react-hook-form": {
+      "optional": true
+    },
+    "formik": {
       "optional": true
     },
     "zod": {
@@ -67,6 +76,7 @@
     "eslint": "^8.57.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "fake-indexeddb": "^6.0.0",
+    "formik": "^2.4.9",
     "jsdom": "^25.0.0",
     "playwright": "^1.60.0",
     "react": "^18.3.0",

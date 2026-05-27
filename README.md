@@ -69,6 +69,42 @@ const { status } = useFormDraftRHF(form, { key: 'rhf-profile', schema: zodAdapte
 return <form>{/* form.register, etc. */}<span>{status}</span></form>;
 ```
 
+## Formik integration
+
+```tsx
+import { useFormik } from 'formik';
+import { useFormDraftFormik } from 'formdraft/formik';
+
+const formik = useFormik({
+  initialValues: { name: '', bio: '' },
+  onSubmit: async (v) => api.submitProfile(v),
+});
+
+const { status, lastSavedAt, discard } = useFormDraftFormik(formik, {
+  key: 'profile-form',
+  schema: zodAdapter(Schema),
+  sync: api.saveProfile,
+});
+```
+
+Restore happens once on mount when storage has a valid draft AND the user hasn't started typing (gated on `formik.dirty`); after that, formik is the source of truth and every value change is persisted automatically.
+
+**On successful submit, call `discard()`** to clear the stored draft and broadcast to other tabs:
+
+```tsx
+const { discard } = useFormDraftFormik(formik, options);
+
+const formik = useFormik({
+  initialValues: { name: '', bio: '' },
+  onSubmit: async (values) => {
+    await api.submitProfile(values);
+    discard(); // ← clears storage + broadcasts to other tabs + resets formik
+  },
+});
+```
+
+Without this, the draft survives in storage and reappears on next mount even though the user has already submitted it. (RHF users have the same responsibility — formdraft never assumes submit "happened" until the host form library tells us.)
+
 ## What it handles
 
 | Production form pain | formdraft |

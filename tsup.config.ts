@@ -4,6 +4,7 @@ export default defineConfig({
   entry: {
     index: 'src/index.ts',
     'rhf/index': 'src/rhf/index.ts',
+    'formik/index': 'src/formik/index.ts',
     'storage/indexedDB': 'src/storage/indexedDB.ts',
     'storage/sessionStorage': 'src/storage/sessionStorage.ts',
   },
@@ -11,7 +12,7 @@ export default defineConfig({
   dts: true,
   sourcemap: true,
   clean: true,
-  external: ['react', 'react-dom', 'react-hook-form', 'zod'],
+  external: ['react', 'react-dom', 'react-hook-form', 'formik', 'zod'],
   target: 'es2020',
   splitting: false,
 });
