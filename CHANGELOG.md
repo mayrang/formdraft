@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-rc.1 — 2026-05-27
+
+README polish only — no code changes. Added badges, "Why this exists" section, "Compared to alternatives" table, FAQ, Contributing section. Identical bundle and API.
+
 ## 0.1.0-rc.0 — 2026-05-27
 
 Initial release candidate.
