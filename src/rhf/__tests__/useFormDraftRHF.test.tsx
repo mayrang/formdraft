@@ -1,6 +1,6 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { useForm, FormProvider } from 'react-hook-form';
+import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { useFormDraftRHF } from '../useFormDraftRHF';
 import { zodAdapter } from '../../internal/schemaValidation';
@@ -19,10 +19,10 @@ function Probe({ onSync }: { onSync: ReturnType<typeof vi.fn> }) {
     multiTab: false,
   });
   return (
-    <FormProvider {...form}>
+    <div>
       <input data-testid="name" {...form.register('name')} />
       <span data-testid="status">{status}</span>
-    </FormProvider>
+    </div>
   );
 }
 
@@ -37,11 +37,8 @@ describe('useFormDraftRHF', () => {
     const onSync = vi.fn().mockResolvedValue(undefined);
     render(<Probe onSync={onSync} />);
     const input = screen.getByTestId('name') as HTMLInputElement;
-    act(() => {
-      input.value = 'Alice';
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-    });
-    await vi.advanceTimersByTimeAsync(100);
+    fireEvent.change(input, { target: { value: 'Alice' } });
+    await vi.advanceTimersByTimeAsync(200);
     const stored = JSON.parse(localStorage.getItem('formdraft:rhf-test')!);
     expect(stored.values).toMatchObject({ name: 'Alice' });
   });

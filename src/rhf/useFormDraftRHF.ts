@@ -3,34 +3,6 @@ import type { UseFormReturn, FieldValues } from 'react-hook-form';
 import type { FormDraftOptions } from '../types';
 import { useFormDraft } from '../useFormDraft';
 
-/**
- * Reads the current values from a form element's registered inputs.
- * Falls back to form.getValues() when the DOM hasn't yet reflected a change
- * (e.g. after a React-controlled form.reset()).
- */
-function readFormValuesFromDOM<T extends FieldValues>(
-  form: UseFormReturn<T>,
-  changedEvent?: Event,
-): T {
-  // Prefer the live DOM value for the field that just changed, then merge with
-  // whatever RHF thinks the other fields are.
-  const current = { ...form.getValues() } as Record<string, unknown>;
-  if (changedEvent) {
-    const target = changedEvent.target as HTMLInputElement | null;
-    if (target && target.name && target.name in current) {
-      const type = target.type;
-      if (type === 'checkbox') {
-        current[target.name] = target.checked;
-      } else if (type === 'number' || type === 'range') {
-        current[target.name] = target.valueAsNumber;
-      } else {
-        current[target.name] = target.value;
-      }
-    }
-  }
-  return current as T;
-}
-
 export function useFormDraftRHF<T extends FieldValues>(
   form: UseFormReturn<T>,
   options: Omit<FormDraftOptions<T>, 'defaultValues'>,
@@ -50,61 +22,31 @@ export function useFormDraftRHF<T extends FieldValues>(
     defaultValues,
   });
 
-  // Keep a stable ref to the draft so event handlers don't go stale.
-  const draftRef = useRef(draft);
-  draftRef.current = draft;
+  // Track whether we've already done the one-time storage restore into RHF.
+  // After mount, RHF is the source of truth; draft is only the persistence layer.
+  const hasRestoredRef = useRef(false);
 
-  const formRef = useRef(form);
-  formRef.current = form;
+  // Keep a stable ref to the initial draft.values so we can detect when
+  // draft.values changes for the first time (storage restore async callback).
+  const initialDraftValuesRef = useRef(draft.values);
 
-  // Guard: when we call form.reset() to restore draft values, we set this flag
-  // so the document-level input listener ignores any residual events.
-  const isRestoringRef = useRef(false);
-
-  // Listen to native input/change events on the document (capture phase) so we
-  // catch changes even when React's synthetic event system doesn't fire
-  // (e.g. jsdom native event dispatch in tests).
-  // We also subscribe to RHF's watch() for environments where React synthetic
-  // events DO work (real browsers), as a belt-and-suspenders approach.
+  // Watch RHF for user changes and patch the draft for persistence.
   useEffect(() => {
-    const handleNativeInput = (e: Event) => {
-      if (isRestoringRef.current) return;
-      const target = e.target as HTMLElement | null;
-      if (!target) return;
-      // Only process events from inputs that belong to a registered RHF field.
-      const fieldName = target.getAttribute('name');
-      if (!fieldName) return;
-      const control = form.control as unknown as { _names?: { mount: Set<string> } };
-      if (control._names && !control._names.mount.has(fieldName)) return;
-      const vals = readFormValuesFromDOM<T>(formRef.current, e);
-      draftRef.current.patch(vals);
-    };
-
-    document.addEventListener('input', handleNativeInput, true);
-    document.addEventListener('change', handleNativeInput, true);
-
-    // Also subscribe via RHF's watch() for synthetic-event environments.
     const subscription = form.watch((vals) => {
-      if (isRestoringRef.current) {
-        isRestoringRef.current = false;
-        return;
-      }
-      draftRef.current.patch(vals as Partial<T>);
+      draft.patch(vals as Partial<T>);
     });
-
-    return () => {
-      document.removeEventListener('input', handleNativeInput, true);
-      document.removeEventListener('change', handleNativeInput, true);
-      subscription.unsubscribe();
-    };
-    // form is stable from useForm()
+    return () => subscription.unsubscribe();
+    // form is stable from useForm(); draft.patch is a stable useCallback ref
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form]);
 
-  // When draft.values changes (e.g. after storage restore on mount),
-  // propagate the new values back into RHF via reset().
+  // When draft.values changes from its initial value, it means storage has been
+  // asynchronously restored. Push the stored values into RHF exactly once.
+  // After that, ignore further draft.values changes (they come from our own patches).
   useEffect(() => {
-    isRestoringRef.current = true;
+    if (hasRestoredRef.current) return;
+    if (draft.values === initialDraftValuesRef.current) return;
+    hasRestoredRef.current = true;
     form.reset(draft.values, { keepDefaultValues: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft.values]);
