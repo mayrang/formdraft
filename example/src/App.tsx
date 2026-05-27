@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { SignupWizard } from './scenarios/SignupWizard';
+import { ProfileSettings } from './scenarios/ProfileSettings';
+import { CommentEditor } from './scenarios/CommentEditor';
 
 type Scenario = 'signup' | 'profile' | 'comment';
 
@@ -14,6 +16,8 @@ export function App() {
         <button onClick={() => setScenario('comment')} disabled={scenario === 'comment'}>Comment Editor</button>
       </nav>
       {scenario === 'signup' && <SignupWizard />}
+      {scenario === 'profile' && <ProfileSettings />}
+      {scenario === 'comment' && <CommentEditor />}
     </div>
   );
 }
