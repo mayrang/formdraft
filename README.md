@@ -7,7 +7,9 @@
 [![license](https://img.shields.io/npm/l/formdraft)](LICENSE)
 [![zero deps](https://img.shields.io/badge/runtime%20deps-0-success)](#zero-runtime-dependencies)
 
-> ⚠️ **v0.1.0-rc.0 (release candidate).** Code-complete with 70+ unit tests. Looking for production feedback before v0.1.0 stable. Try it, report bugs at https://github.com/mayrang/formdraft/issues.
+> ⚠️ **v0.1.0-rc.1 (release candidate).** Code-complete with 74 unit tests. Looking for production feedback before v0.1.0 stable. Try it, report bugs at https://github.com/mayrang/formdraft/issues.
+
+![demo](docs/assets/demo.gif)
 
 When your user fills out a long form, the form survives:
 - Page refresh
