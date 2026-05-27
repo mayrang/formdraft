@@ -1,5 +1,7 @@
 export { useFormDraft } from './useFormDraft';
 export { useFormDraftStatus } from './useFormDraftStatus';
+export { getFormDraft } from './getFormDraft';
+export type { FormDraftHandle } from './getFormDraft';
 export { zodAdapter } from './internal/schemaValidation';
 export { localStorageAdapter } from './storage/localStorage';
 export { sessionStorageAdapter } from './storage/sessionStorage';

@@ -9,7 +9,7 @@ import { createStatusMachine } from './internal/statusMachine';
 import { createSyncQueue } from './internal/syncQueue';
 import { createBroadcaster } from './internal/broadcaster';
 import { validateOrDiscard } from './internal/schemaValidation';
-import { registerDraft, unregisterDraft } from './internal/registry';
+import { notifySubscribers, registerDraft, unregisterDraft } from './internal/registry';
 import { localStorageAdapter } from './storage/localStorage';
 
 const DEFAULT_RETRY: RetryConfig = {
@@ -72,11 +72,12 @@ export function useFormDraft<T extends Record<string, unknown>>(
   const statusMachineRef = useRef(createStatusMachine());
   const [, forceStatus] = useState(0);
 
-  // Keep a ref to the current values so callbacks can read latest without stale closure
+  // Keep a ref to the current values so callbacks can read latest without
+  // stale closure. Updated during render (not in useEffect) so external
+  // imperative callers via `getFormDraft` see committed values immediately,
+  // matching the other snapshot refs below.
   const valuesRef = useRef<T>(values);
-  useEffect(() => {
-    valuesRef.current = values;
-  }, [values]);
+  valuesRef.current = values;
 
   // Refs holding the latest options so the once-created debounced functions can
   // read current values without re-running `useRef(debounce(...))` each render.
@@ -88,6 +89,10 @@ export function useFormDraft<T extends Record<string, unknown>>(
   keyRef.current = key;
   const versionRef = useRef(version);
   versionRef.current = version;
+  // Hoisted from below — also used by the restore effect's migrate path,
+  // which would otherwise read this ref before its declaration line.
+  const excludeFieldsRef = useRef(excludeFields);
+  excludeFieldsRef.current = excludeFields;
 
   // Tracks whether user has called set()/patch() since mount. Used to skip a
   // late-arriving storage restore so user input isn't clobbered.
@@ -383,8 +388,8 @@ export function useFormDraft<T extends Record<string, unknown>>(
   // Created once with stable identity; closures read from refs above so they
   // always see the latest storage/key/version/excludeFields without recreating
   // (which would lose pending timers and stale-close on old values).
-  const excludeFieldsRef = useRef(excludeFields);
-  excludeFieldsRef.current = excludeFields;
+  // excludeFieldsRef is hoisted above (near storageRef) — it's also read by
+  // the restore effect's migrate path.
 
   const persistDebouncedRef = useRef(
     debounce(async (next: T) => {
@@ -438,13 +443,64 @@ export function useFormDraft<T extends Record<string, unknown>>(
   }, [disabled, values, pendingChanges]);
 
   // --- Registry registration ---
+  // Holds the imperative action callbacks and live state snapshots so
+  // `useFormDraftStatus` (subscribes by key) and `getFormDraft` (imperative
+  // external control by key) can reach this instance without prop-drilling.
+  // Refs are mutated on every render below so external callers always see
+  // the latest closure / state values without us re-registering on each
+  // state change (which would notify subscribers far more than needed).
+  const saveRef = useRef<() => Promise<void>>(() => Promise.resolve());
+  const discardRef = useRef<() => void>(() => {});
+  const submitRef = useRef<
+    <R>(
+      handler: (v: T) => Promise<R>,
+    ) => (e?: { preventDefault?: () => void }) => Promise<R | undefined>
+  >(
+    () => async () => undefined,
+  );
+  const pendingChangesRef = useRef(pendingChanges);
+  pendingChangesRef.current = pendingChanges;
+  const errorRef = useRef(error);
+  errorRef.current = error;
+  const lastSavedAtRef = useRef(lastSavedAt);
+  lastSavedAtRef.current = lastSavedAt;
+
+  // Register ONCE per mount (no `lastSavedAt` in deps). useFormDraftStatus
+  // and getFormDraft read live values via the refs we hold here, so we don't
+  // need the unregister→register churn that previously flickered subscribers
+  // through DEFAULT_SNAPSHOT on every successful sync.
+  //
+  // Also route status-machine transitions through the registry's notify
+  // channel. Subscribers that bound directly to this entry's statusMachine
+  // would otherwise miss transitions on the actively-registered entry after
+  // a duplicate-key remount (subscribe captures the entry-at-subscribe-time
+  // and never re-binds).
   useEffect(() => {
     const entry = {
       statusMachine: statusMachineRef.current,
-      lastSavedAt,
+      saveRef,
+      discardRef,
+      submitRef,
+      valuesRef,
+      pendingChangesRef,
+      errorRef,
+      lastSavedAtRef,
     };
     registerDraft(key, entry);
-    return () => unregisterDraft(key);
+    const unsubStatus = statusMachineRef.current.subscribe(() => {
+      notifySubscribers(key);
+    });
+    return () => {
+      unsubStatus();
+      unregisterDraft(key, entry);
+    };
+  }, [key]);
+
+  // Notify registry subscribers when state worth re-snapshotting changes
+  // (just lastSavedAt for now — status changes are notified via the status
+  // machine's own subscribe channel).
+  useEffect(() => {
+    notifySubscribers(key);
   }, [key, lastSavedAt]);
 
   // Track mount status. Re-set to true on each mount so React.StrictMode's
@@ -559,6 +615,15 @@ export function useFormDraft<T extends Record<string, unknown>>(
     },
     [onConflictData],
   );
+
+  // Sync action callbacks into refs each render so registry entries (used by
+  // getFormDraft) always invoke the LATEST closure even when discard/submit
+  // recreate due to defaultValues/key/storage changes.
+  saveRef.current = save;
+  discardRef.current = discard;
+  // submit is generic in R; coerce at the ref boundary — the registry only
+  // needs the imperative shape, not per-call return-type fidelity.
+  submitRef.current = submit as typeof submitRef.current;
 
   return {
     values,
