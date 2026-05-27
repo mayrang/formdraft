@@ -77,7 +77,10 @@ import { useFormDraftFormik } from 'formdraft/formik';
 
 const formik = useFormik({
   initialValues: { name: '', bio: '' },
-  onSubmit: async (v) => api.submitProfile(v),
+  onSubmit: async (values) => {
+    await api.submitProfile(values);
+    discard(); // ← clears storage + broadcasts to other tabs + resets formik
+  },
 });
 
 const { status, lastSavedAt, discard } = useFormDraftFormik(formik, {
@@ -89,21 +92,30 @@ const { status, lastSavedAt, discard } = useFormDraftFormik(formik, {
 
 Restore happens once on mount when storage has a valid draft AND the user hasn't started typing (gated on `formik.dirty`); after that, formik is the source of truth and every value change is persisted automatically.
 
-**On successful submit, call `discard()`** to clear the stored draft and broadcast to other tabs:
+**On successful submit, call `discard()`** to clear the stored draft and broadcast to other tabs. Without this, the draft survives in storage and reappears on next mount even though the user has already submitted it. (RHF users have the same responsibility — formdraft never assumes submit "happened" until the host form library tells us.)
+
+## TanStack Form integration
 
 ```tsx
-const { discard } = useFormDraftFormik(formik, options);
+import { useForm } from '@tanstack/react-form';
+import { useFormDraftTanstack } from 'formdraft/tanstack-form';
 
-const formik = useFormik({
-  initialValues: { name: '', bio: '' },
-  onSubmit: async (values) => {
-    await api.submitProfile(values);
-    discard(); // ← clears storage + broadcasts to other tabs + resets formik
+const form = useForm({
+  defaultValues: { name: '', bio: '' },
+  onSubmit: async ({ value }) => {
+    await api.submitProfile(value);
+    discard(); // ← clears storage + broadcasts + resets form
   },
+});
+
+const { status, lastSavedAt, discard } = useFormDraftTanstack(form, {
+  key: 'profile-form',
+  schema: zodAdapter(Schema),
+  sync: api.saveProfile,
 });
 ```
 
-Without this, the draft survives in storage and reappears on next mount even though the user has already submitted it. (RHF users have the same responsibility — formdraft never assumes submit "happened" until the host form library tells us.)
+Restore happens once on mount when storage has a valid draft AND the user hasn't already started typing. Restore calls `setFieldValue` per top-level key with `{ dontValidate: true }` so onChange validators don't paint errors against text the user never typed. (We deliberately do *not* pass `dontUpdateMeta`: TanStack's `FieldApi.update` reseeds any field whose `isTouched` is still `false` back to its `defaultValue` prop on the next render, which would silently wipe restored data on the idiomatic `<form.Field name="x" defaultValue="">`.) As with the Formik adapter, **call `discard()` in your `onSubmit`** after a successful API submit so the just-submitted draft doesn't reappear on next page load.
 
 ## What it handles
 

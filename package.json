@@ -22,6 +22,11 @@
       "import": "./dist/formik/index.mjs",
       "require": "./dist/formik/index.js"
     },
+    "./tanstack-form": {
+      "types": "./dist/tanstack-form/index.d.ts",
+      "import": "./dist/tanstack-form/index.mjs",
+      "require": "./dist/tanstack-form/index.js"
+    },
     "./storage/indexedDB": {
       "types": "./dist/storage/indexedDB.d.ts",
       "import": "./dist/storage/indexedDB.mjs",
@@ -52,6 +57,7 @@
     "react": ">=18",
     "react-hook-form": ">=7.0.0",
     "formik": ">=2.4.0",
+    "@tanstack/react-form": ">=1.0.0",
     "zod": ">=3.0.0"
   },
   "peerDependenciesMeta": {
@@ -61,6 +67,9 @@
     "formik": {
       "optional": true
     },
+    "@tanstack/react-form": {
+      "optional": true
+    },
     "zod": {
       "optional": true
     }
@@ -68,6 +77,7 @@
   "devDependencies": {
     "@playwright/test": "^1.60.0",
     "@size-limit/preset-small-lib": "^11.0.0",
+    "@tanstack/react-form": "^1.32.1",
     "@testing-library/react": "^16.0.0",
     "@types/node": "^20.19.41",
     "@types/react": "^18.3.0",
