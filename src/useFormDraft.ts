@@ -156,7 +156,17 @@ export function useFormDraft<T extends Record<string, unknown>>(
         }
       },
       retry: retryConfig,
-      onError: (err, attempt) => onSyncErrorRef.current?.(err, attempt),
+      onError: (err, attempt) => {
+        // User-supplied callback — wrap so a throwing onSyncError doesn't
+        // bubble into the queue's attemptSync catch path and cause an
+        // unhandled rejection.
+        try {
+          onSyncErrorRef.current?.(err, attempt);
+        } catch (cbErr) {
+          // eslint-disable-next-line no-console
+          console.warn('[formdraft] onSyncError threw:', cbErr);
+        }
+      },
       onAbandoned: (err) => {
         if (mountedRef.current) setError(err);
         statusMachineRef.current.send('SAVE_FAIL');
@@ -184,10 +194,27 @@ export function useFormDraft<T extends Record<string, unknown>>(
     if (disabled || multiTab === false) return;
     const b = createBroadcaster<T>({ key, tabId: tabIdRef.current });
     broadcasterRef.current = b;
+    // Run a user callback safely — a thrown error in onConflict / onSubmitted /
+    // etc. must not escape into the BroadcastChannel onmessage handler (which
+    // would become an unhandled exception). Warn-and-swallow is the
+    // appropriate boundary for user-supplied callbacks.
+    const runCallback = <R,>(fn: () => R, label: string): R | undefined => {
+      try {
+        return fn();
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn(`[formdraft] ${label} threw:`, e);
+        return undefined;
+      }
+    };
+
     b.onValuesChanged((remote) => {
       if (!mountedRef.current) return;
       if (multiTab === 'last-writer-wins') {
-        const resolved = onConflict ? onConflict(valuesRef.current, remote) : 'remote';
+        const resolved = onConflict
+          ? runCallback(() => onConflict(valuesRef.current, remote), 'onConflict')
+          : 'remote';
+        if (resolved === undefined) return; // callback threw — keep current
         if (resolved === 'remote') setValues(remote);
         else if (resolved === 'local') {
           // keep current — nothing to do
@@ -201,7 +228,7 @@ export function useFormDraft<T extends Record<string, unknown>>(
         setOnConflictData(remote);
         statusMachineRef.current.send('CONFLICT');
       } else if (multiTab === 'manual') {
-        onConflict?.(valuesRef.current, remote);
+        if (onConflict) runCallback(() => onConflict(valuesRef.current, remote), 'onConflict');
       }
     });
     b.onSubmitted(() => {

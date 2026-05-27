@@ -170,6 +170,20 @@ formdraft has **no** runtime dependencies. Only peer deps (which you'd install a
 
 Bundle target: **≤ 8 KB gzipped** (enforced in CI).
 
+## Security model
+
+formdraft trusts **same-origin code**. Concretely:
+
+- Any script on the same origin (your app, browser extensions installed by the user, XSS payloads if your app has them) can call `localStorage.setItem('formdraft:<key>', ...)` or open a `BroadcastChannel('formdraft:<key>')` and post a `discarded` / `submitted` / `values-changed` message. The library will treat such a message as if it came from another legitimate tab and may clear the draft or update values accordingly.
+- This is intentional — multi-tab coordination on the same origin is the headline feature. Cross-origin BroadcastChannels are already impossible per the web platform.
+- Stored data goes through your schema (`zod` or compatible) on restore. Malicious JSON with unknown keys or wrong types is discarded; **prototype pollution attacks via `__proto__` keys are neutralized** by the schema parse step. If you replace Zod with a less strict validator, you take on that responsibility.
+
+Threats out of scope for v0.1:
+- Cryptographically signing messages between tabs (e.g., HMAC) — would require key distribution; not worth the complexity for the same-origin trust boundary.
+- Rate-limiting hostile broadcast spam.
+
+If your app must defend against malicious same-origin code (e.g., third-party scripts you don't fully trust), don't use formdraft for sensitive drafts on those pages.
+
 ## What this lib is NOT
 
 - Not a form-state manager. Use React Hook Form (or anything else) for that; formdraft wraps your form state with persistence.

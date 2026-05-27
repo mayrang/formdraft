@@ -232,6 +232,32 @@ describe('useFormDraft multi-tab', () => {
     expect(screen.getByTestId('A-status').textContent).not.toBe('conflict');
   });
 
+  it("'last-writer-wins' onConflict throwing does not escape as an uncaught exception", async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const ProbeA = makeProbe('A', 'last-writer-wins', () => {
+      throw new Error('boom');
+    });
+    const ProbeB = makeProbe('B', 'last-writer-wins');
+    render(
+      <>
+        <ProbeA />
+        <ProbeB />
+      </>,
+    );
+
+    // B writes; A's onConflict throws. A must NOT crash and must NOT adopt
+    // the remote value (since the resolver bailed).
+    act(() => screen.getByTestId('B-set').click());
+    await waitForBroadcast();
+
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('onConflict threw'),
+      expect.any(Error),
+    );
+    expect(screen.getByTestId('A-name').textContent).toBe('');
+    warn.mockRestore();
+  });
+
   it('submit in tab A broadcasts; tab B resets to defaults and clears storage', async () => {
     localStorage.setItem(
       'formdraft:mt-key',
