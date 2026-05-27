@@ -2,6 +2,13 @@
 
 > Production-grade form auto-save + offline survival for React. Zero runtime dependencies.
 
+[![npm version](https://img.shields.io/npm/v/formdraft/rc?label=npm%20rc&color=cb3837)](https://www.npmjs.com/package/formdraft)
+[![bundle size](https://img.shields.io/bundlephobia/minzip/formdraft?label=gzipped)](https://bundlephobia.com/package/formdraft)
+[![license](https://img.shields.io/npm/l/formdraft)](LICENSE)
+[![zero deps](https://img.shields.io/badge/runtime%20deps-0-success)](#zero-runtime-dependencies)
+
+> ⚠️ **v0.1.0-rc.0 (release candidate).** Code-complete with 70+ unit tests. Looking for production feedback before v0.1.0 stable. Try it, report bugs at https://github.com/mayrang/formdraft/issues.
+
 When your user fills out a long form, the form survives:
 - Page refresh
 - Tab close + reopen
@@ -76,6 +83,26 @@ return <form>{/* form.register, etc. */}<span>{status}</span></form>;
 | Large content (rich text, base64 images) | IndexedDB adapter |
 | 4-byte structured-clone class loss | dev-mode warning |
 
+## Why this exists
+
+`react-hook-form-persist`, the market leader at 35k weekly downloads, has been unmaintained since May 2022. `formik-persist` since 2018. No major form library (React Hook Form, Formik, TanStack Form) ships first-party auto-save.
+
+Every SaaS reinvents the same ~700-LOC stack: localStorage persistence + retry queue + multi-tab sync + status indicator + IndexedDB for large drafts. We measured this in calibration before writing a line of library code.
+
+formdraft is that stack, packaged. With the 7 platform-quirk traps AI assistants reliably miss (`navigator.onLine` lies, `BroadcastChannel` structuredClone class loss, mobile Safari tab suspension, sync vs async storage incompat, etc.) baked in as obvious affordances.
+
+## Compared to alternatives
+
+| Library | Status | Persist | Restore | Server sync | Offline queue | Multi-tab | Status UI | IndexedDB | Bundle |
+|---|---|---|---|---|---|---|---|---|---|
+| **formdraft** | active | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | 3.4 KB |
+| react-hook-form-persist | dead 2022 | ✓ | ✓ | — | — | — | — | — | ~2 KB |
+| formik-persist | dead 2018 | ✓ | ✓ | — | — | — | — | — | ~2 KB |
+| react-autosave | partial | — | — | ✓ | — | — | — | — | ~3 KB |
+| workbox-background-sync | active | — | — | ✓ | ✓ (SW) | — | — | — | 12 KB |
+| Replicache / Zero | active | full sync engine, very different scope |
+| Tiptap collab + Yjs | active | rich-text editor only, not form-shaped |
+
 ## Storage adapters
 
 ```tsx
@@ -121,13 +148,51 @@ Bundle target: **≤ 8 KB gzipped** (enforced in CI).
 
 - From `react-hook-form-persist`: see [docs/migration-from-react-hook-form-persist.md](docs/migration-from-react-hook-form-persist.md).
 
-## Status (v0.1.0-rc)
+## Contributing
 
-- 70+ unit tests across 14 modules
-- Bundle: ~3.4 KB brotli (≤ 8 KB target)
-- React 18+
-- Browser support: Chrome/Edge 88+, Firefox 78+, Safari 15.4+
-- iOS Safari: works; multi-tab tested
+PRs welcome. Especially:
+- Vue / Svelte / Solid adapters (architecture is framework-agnostic at the core; bindings live in `src/<framework>/`)
+- Formik / TanStack Form / Felte adapters
+- Network heartbeat plugin (`navigator.onLine` is unreliable)
+- Real-world bug reports with reproduction
+
+Local development:
+```bash
+git clone https://github.com/mayrang/formdraft
+cd formdraft
+npm install
+npm test
+npm run build
+```
+
+## FAQ
+
+**Q: Why does my form lose data on first refresh?**
+A: Restore is asynchronous. The hook reads storage in a `useEffect`. The default values render first, then values restore on the next paint. To force-show a loading state while restoring, check `pendingChanges === false && values === defaultValues` for the first ~50ms.
+
+**Q: Can I use this with TanStack Form / Formik?**
+A: Use the headless `useFormDraft` and wire your form lib's values into it via the form lib's watch API. The RHF adapter is a thin convenience wrapper. PRs for Formik / TanStack Form adapters welcome (target `formdraft/<adapter>` subpath).
+
+**Q: My form has 100+ fields and IndexedDB feels slow.**
+A: localStorage handles up to ~5 MB synchronously; IndexedDB is recommended for forms with large binary content (base64 images, long markdown). Pure text forms should stay on localStorage.
+
+**Q: Does this work with Next.js App Router / SSR?**
+A: Yes. The hook does nothing during SSR (no storage reads on server). On client mount it restores. Set `disabled={true}` if you need to skip even client-side restore (e.g., for privacy-mode pages).
+
+**Q: How is this different from Zustand persist or redux-persist?**
+A: Those are generic state-persistence libraries — they handle persist + restore but not the rest: server sync, offline queue, multi-tab conflict, status UI, schema migration, sensitive-field exclusion. You can combine them with workbox-background-sync but you reinvent ~700 LOC of glue per app. formdraft is that glue, packaged.
+
+**Q: What about React Native?**
+A: No. formdraft uses BroadcastChannel, navigator.onLine, IndexedDB — all browser APIs. RN port would need entirely different storage + sync layer. Out of scope for v0.1.
+
+## Status
+
+- **v0.1.0-rc.0** on [npm](https://www.npmjs.com/package/formdraft) (RC — looking for production feedback)
+- 74 unit tests across 14 modules
+- **~3.4 KB brotli** (8 KB CI gate)
+- React 18+; Browser support Chrome/Edge 88+, Firefox 78+, Safari 15.4+
+- iOS Safari: multi-tab and offline tested
+- 0 runtime dependencies
 
 ## License
 
