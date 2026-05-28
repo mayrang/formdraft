@@ -45,6 +45,7 @@ export function useFormDraftTanstack<T extends Record<string, unknown>>(
   discard: ReturnType<typeof useFormDraft<T>>['discard'];
   onConflictData: ReturnType<typeof useFormDraft<T>>['onConflictData'];
   resolveConflict: ReturnType<typeof useFormDraft<T>>['resolveConflict'];
+  fieldsNeedingReentry: ReturnType<typeof useFormDraft<T>>['fieldsNeedingReentry'];
 } {
   const defaultValues = (form.options.defaultValues ?? ({} as T)) as T;
   const draft = useFormDraft<T>({
@@ -160,5 +161,6 @@ export function useFormDraftTanstack<T extends Record<string, unknown>>(
     discard,
     onConflictData: draft.onConflictData,
     resolveConflict: draft.resolveConflict,
+    fieldsNeedingReentry: draft.fieldsNeedingReentry,
   };
 }

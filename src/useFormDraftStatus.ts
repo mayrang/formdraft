@@ -2,8 +2,24 @@ import { useCallback, useRef, useSyncExternalStore } from 'react';
 import { getDraft, subscribeRegistry } from './internal/registry';
 import type { FormDraftStatus } from './types';
 
-type Snapshot = { status: FormDraftStatus; lastSavedAt: Date | null };
-const DEFAULT_SNAPSHOT: Snapshot = { status: 'idle', lastSavedAt: null };
+type Snapshot = {
+  status: FormDraftStatus;
+  lastSavedAt: Date | null;
+  fieldsNeedingReentry: ReadonlyArray<string>;
+};
+const EMPTY_REENTRY: ReadonlyArray<string> = [];
+const DEFAULT_SNAPSHOT: Snapshot = {
+  status: 'idle',
+  lastSavedAt: null,
+  fieldsNeedingReentry: EMPTY_REENTRY,
+};
+
+function arraysShallowEqual(a: ReadonlyArray<string>, b: ReadonlyArray<string>): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
 
 export function useFormDraftStatus(key: string): Snapshot {
   // Cache the last returned snapshot OBJECT so consecutive getSnapshot() calls
@@ -13,8 +29,9 @@ export function useFormDraftStatus(key: string): Snapshot {
   const cacheRef = useRef<{
     status: FormDraftStatus | null;
     lastSavedMs: number | null;
+    reentry: ReadonlyArray<string>;
     snapshot: Snapshot;
-  }>({ status: null, lastSavedMs: null, snapshot: DEFAULT_SNAPSHOT });
+  }>({ status: null, lastSavedMs: null, reentry: EMPTY_REENTRY, snapshot: DEFAULT_SNAPSHOT });
 
   const subscribe = useCallback(
     (cb: () => void) => {
@@ -32,8 +49,13 @@ export function useFormDraftStatus(key: string): Snapshot {
     const entry = getDraft(key);
     if (!entry) {
       const c = cacheRef.current;
-      if (c.status === null && c.lastSavedMs === null) return c.snapshot;
-      cacheRef.current = { status: null, lastSavedMs: null, snapshot: DEFAULT_SNAPSHOT };
+      if (c.status === null && c.lastSavedMs === null && c.reentry === EMPTY_REENTRY) return c.snapshot;
+      cacheRef.current = {
+        status: null,
+        lastSavedMs: null,
+        reentry: EMPTY_REENTRY,
+        snapshot: DEFAULT_SNAPSHOT,
+      };
       return DEFAULT_SNAPSHOT;
     }
     const status = entry.statusMachine.getStatus();
@@ -41,13 +63,21 @@ export function useFormDraftStatus(key: string): Snapshot {
     // here, but that required unregister→register on every save and flickered
     // subscribers through DEFAULT_SNAPSHOT.
     const lastSavedMs = entry.lastSavedAtRef.current?.getTime() ?? null;
+    const reentry = entry.fieldsNeedingReentryRef.current;
     const c = cacheRef.current;
-    if (c.status === status && c.lastSavedMs === lastSavedMs) return c.snapshot;
+    if (
+      c.status === status &&
+      c.lastSavedMs === lastSavedMs &&
+      arraysShallowEqual(c.reentry, reentry)
+    ) {
+      return c.snapshot;
+    }
     const snapshot: Snapshot = {
       status,
       lastSavedAt: lastSavedMs !== null ? new Date(lastSavedMs) : null,
+      fieldsNeedingReentry: reentry,
     };
-    cacheRef.current = { status, lastSavedMs, snapshot };
+    cacheRef.current = { status, lastSavedMs, reentry, snapshot };
     return snapshot;
   }, [key]);
 

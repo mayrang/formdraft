@@ -23,6 +23,11 @@ export type FormDraftHandle<T = unknown> = {
   getValues: () => T;
   getPendingChanges: () => boolean;
   getError: () => Error | null;
+  /**
+   * Snapshot of `excludeFields` that need re-entry after a restore. See
+   * `FormDraftResult.fieldsNeedingReentry` for semantics.
+   */
+  getFieldsNeedingReentry: () => ReadonlyArray<keyof T & string>;
 };
 
 /**
@@ -53,5 +58,7 @@ export function getFormDraft<T = unknown>(
     getValues: () => entry.valuesRef.current as T,
     getPendingChanges: () => entry.pendingChangesRef.current,
     getError: () => entry.errorRef.current,
+    getFieldsNeedingReentry: () =>
+      entry.fieldsNeedingReentryRef.current as ReadonlyArray<keyof T & string>,
   };
 }

@@ -31,6 +31,7 @@ function makeRegistryEntry(machine: StatusMachine): RegistryEntry {
     pendingChangesRef: { current: false },
     errorRef: { current: null },
     lastSavedAtRef: { current: null },
+    fieldsNeedingReentryRef: { current: [] },
   };
 }
 

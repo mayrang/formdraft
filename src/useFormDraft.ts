@@ -23,7 +23,33 @@ const PERSIST_DEBOUNCE_MS = 50;
 const BROADCAST_DEBOUNCE_MS = 200;
 const STORAGE_RECORD_KEY = '__v';
 
-type StoredRecord<T> = { __v: number; values: T };
+type StoredRecord<T> = {
+  __v: number;
+  values: T;
+  /**
+   * Optional hint added in v0.3: names of `excludeFields` whose values were
+   * non-default at persist time. Used by restore to surface "needs re-entry"
+   * for sensitive fields the consumer chose to strip from storage. Key names
+   * only — values are never persisted (that defeats the point of excludeFields).
+   *
+   * Pre-v0.3 records omit this field; restore treats them as "nothing needed
+   * re-entry" — safely backward compatible.
+   */
+  __excludedHad?: string[];
+};
+
+function computeExcludedHad<T>(
+  values: T,
+  defaultValues: T,
+  excludeFields: Array<keyof T>,
+): string[] {
+  if (excludeFields.length === 0) return [];
+  const out: string[] = [];
+  for (const k of excludeFields) {
+    if (!Object.is(values[k], defaultValues[k])) out.push(k as string);
+  }
+  return out;
+}
 
 function generateTabId(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID();
@@ -66,6 +92,11 @@ export function useFormDraft<T extends Record<string, unknown>>(
   const [error, setError] = useState<Error | null>(null);
   const [pendingChanges, setPendingChanges] = useState(false);
   const [onConflictData, setOnConflictData] = useState<T | null>(null);
+  // Excluded fields whose pre-persist values were non-default — populated
+  // from the stored record's `__excludedHad` on restore, cleared on
+  // discard/submit, and used (together with current `values`) to derive
+  // `fieldsNeedingReentry` per render.
+  const [excludedHadOnRestore, setExcludedHadOnRestore] = useState<string[]>([]);
 
   const tabIdRef = useRef<string>(generateTabId());
   const mountedRef = useRef(true);
@@ -93,6 +124,16 @@ export function useFormDraft<T extends Record<string, unknown>>(
   // which would otherwise read this ref before its declaration line.
   const excludeFieldsRef = useRef(excludeFields);
   excludeFieldsRef.current = excludeFields;
+  // Mirror of defaultValues so the persist debounce (frozen at mount) can
+  // compute "is this excluded field at its default?" against the latest
+  // user-provided defaults without recreating the debounced function.
+  const defaultValuesRef = useRef(defaultValues);
+  defaultValuesRef.current = defaultValues;
+  // Ref tracking the derived `fieldsNeedingReentry` list (assigned at the
+  // bottom of this function after we compute the derivation). Hoisted up
+  // here so the registry effect can capture it on first mount — same
+  // pattern as the other snapshot refs.
+  const fieldsNeedingReentryRef = useRef<ReadonlyArray<keyof T & string>>([]);
 
   // Tracks whether user has called set()/patch() since mount. Used to skip a
   // late-arriving storage restore so user input isn't clobbered.
@@ -222,12 +263,15 @@ export function useFormDraft<T extends Record<string, unknown>>(
           ? runCallback(() => onConflict(valuesRef.current, remote), 'onConflict')
           : 'remote';
         if (resolved === undefined) return; // callback threw — keep current
-        if (resolved === 'remote') setValues(remote);
-        else if (resolved === 'local') {
+        if (resolved === 'remote') {
+          setValues(remote);
+          setExcludedHadOnRestore([]);
+        } else if (resolved === 'local') {
           // keep current — nothing to do
         } else if (resolved !== null && typeof resolved === 'object') {
           // Caller returned a merged object; trust it as the resolved state.
           setValues(resolved as T);
+          setExcludedHadOnRestore([]);
         }
         // Any other return (string typo, undefined, primitive) is ignored —
         // safer than coercing junk into form state.
@@ -249,6 +293,7 @@ export function useFormDraft<T extends Record<string, unknown>>(
       setPendingChanges(false);
       setLastSavedAt(null);
       setError(null);
+      setExcludedHadOnRestore([]);
       void storage.remove(key);
       statusMachineRef.current.send('RESET');
     });
@@ -262,6 +307,7 @@ export function useFormDraft<T extends Record<string, unknown>>(
       setValues(defaultValues);
       setPendingChanges(false);
       setError(null);
+      setExcludedHadOnRestore([]);
       statusMachineRef.current.send('RESET');
     });
     return () => {
@@ -358,10 +404,35 @@ export function useFormDraft<T extends Record<string, unknown>>(
           const validated = validateOrDiscard(mergeExcluded(migrated), schema, key);
           if (validated !== null && !userTouchedRef.current) {
             setValues(validated);
+            // Recompute __excludedHad against the migrated values + current
+            // defaults. A naive carry-over would persist stale field names
+            // forever if the migrate function renamed a key (e.g., password
+            // → pw). Recomputing means: the hint reflects which CURRENT
+            // excludeFields are non-default in the migrated state.
+            const newExcludedHad = computeExcludedHad(
+              validated,
+              defaultValues,
+              excludeFieldsRef.current,
+            );
+            if (newExcludedHad.length > 0) {
+              setExcludedHadOnRestore(newExcludedHad);
+            } else if (Array.isArray(record.__excludedHad)) {
+              // Fall back to the carried-over hint only when filtered cleanly
+              // (string keys that match current excludeFields) — the runtime
+              // useMemo intersect will drop anything else.
+              const carried = record.__excludedHad.filter(
+                (k): k is string =>
+                  typeof k === 'string' &&
+                  (excludeFieldsRef.current as unknown as string[]).includes(k),
+              );
+              if (carried.length > 0) setExcludedHadOnRestore(carried);
+            }
             // Persist with the new __v so subsequent mounts don't re-migrate
             // (non-idempotent migrators would otherwise corrupt data each mount).
             const stripped = stripExcluded(validated, excludeFieldsRef.current);
-            void storage.write(key, { __v: version, values: stripped } as StoredRecord<T>);
+            const rewritten: StoredRecord<T> = { __v: version, values: stripped };
+            if (newExcludedHad.length > 0) rewritten.__excludedHad = newExcludedHad;
+            void storage.write(key, rewritten);
           }
           return;
         }
@@ -375,7 +446,20 @@ export function useFormDraft<T extends Record<string, unknown>>(
       const validated = validateOrDiscard(mergeExcluded(record.values), schema, key);
       // Skip restore if user has already typed — don't clobber their input with a
       // late-arriving storage read (race surfaces in StrictMode and slow I/O).
-      if (validated !== null && !userTouchedRef.current) setValues(validated);
+      if (validated !== null && !userTouchedRef.current) {
+        setValues(validated);
+        // Hydrate the "needs re-entry" hint so consumers can prompt for
+        // sensitive fields that were stripped from storage by `excludeFields`.
+        // Defensively filter to strings; hand-written or downgraded records
+        // could contain non-string entries that would surface as garbage in
+        // the consumer-facing `fieldsNeedingReentry` list.
+        if (Array.isArray(record.__excludedHad)) {
+          const cleaned = record.__excludedHad.filter(
+            (k): k is string => typeof k === 'string',
+          );
+          if (cleaned.length > 0) setExcludedHadOnRestore(cleaned);
+        }
+      }
     })();
     return () => {
       cancelled = true;
@@ -395,11 +479,21 @@ export function useFormDraft<T extends Record<string, unknown>>(
     debounce(async (next: T) => {
       if (!mountedRef.current) return;
       const stripped = stripExcluded(next, excludeFieldsRef.current);
+      // List excluded fields that currently hold non-default values, so a
+      // future restore can surface them as `fieldsNeedingReentry`. Key names
+      // only — values are not persisted (that's the whole point of excluding).
+      const excludedHad = computeExcludedHad(
+        next,
+        defaultValuesRef.current,
+        excludeFieldsRef.current,
+      );
+      const record: StoredRecord<T> = {
+        __v: versionRef.current,
+        values: stripped,
+      };
+      if (excludedHad.length > 0) record.__excludedHad = excludedHad;
       try {
-        await storageRef.current.write(keyRef.current, {
-          __v: versionRef.current,
-          values: stripped,
-        } as StoredRecord<T>);
+        await storageRef.current.write(keyRef.current, record);
       } catch (e) {
         const err = e instanceof Error ? e : new Error(String(e));
         if (mountedRef.current) setError(err);
@@ -485,6 +579,7 @@ export function useFormDraft<T extends Record<string, unknown>>(
       pendingChangesRef,
       errorRef,
       lastSavedAtRef,
+      fieldsNeedingReentryRef,
     };
     registerDraft(key, entry);
     const unsubStatus = statusMachineRef.current.subscribe(() => {
@@ -554,6 +649,7 @@ export function useFormDraft<T extends Record<string, unknown>>(
     setLastSavedAt(null);
     setError(null);
     setOnConflictData(null);
+    setExcludedHadOnRestore([]);
     syncQueueRef.current?.cancel();
     void storage.remove(key);
     broadcasterRef.current?.broadcastDiscarded();
@@ -587,6 +683,7 @@ export function useFormDraft<T extends Record<string, unknown>>(
             setPendingChanges(false);
             setLastSavedAt(null);
             setError(null);
+            setExcludedHadOnRestore([]);
             statusMachineRef.current.send('RESET');
           }
           return result;
@@ -607,8 +704,13 @@ export function useFormDraft<T extends Record<string, unknown>>(
         // keep current
       } else if (choice === 'remote') {
         if (onConflictData) setValues(onConflictData);
+        // The user explicitly adopted the remote snapshot — the local
+        // restore-hint no longer applies. Clear so we don't prompt re-entry
+        // for fields the user just chose to throw away.
+        setExcludedHadOnRestore([]);
       } else {
         setValues(choice as T);
+        setExcludedHadOnRestore([]);
       }
       setOnConflictData(null);
       statusMachineRef.current.send('RESOLVE');
@@ -625,6 +727,34 @@ export function useFormDraft<T extends Record<string, unknown>>(
   // needs the imperative shape, not per-call return-type fidelity.
   submitRef.current = submit as typeof submitRef.current;
 
+  // Derive `fieldsNeedingReentry` per render: the restore hint, filtered down
+  // to keys that (a) are still in the current `excludeFields` config, AND
+  // (b) hold the default value in the live form. As the user re-enters one
+  // (typing → value diverges from default), it falls out of the list. The
+  // excludeFields intersect drops stale keys that survived a session where
+  // the consumer's `excludeFields` shrank or a key was renamed via migrate.
+  const fieldsNeedingReentry = useMemo<ReadonlyArray<keyof T & string>>(() => {
+    if (excludedHadOnRestore.length === 0) return [];
+    const excludeSet = new Set<string>(excludeFields as unknown as string[]);
+    const out: Array<keyof T & string> = [];
+    for (const k of excludedHadOnRestore) {
+      if (!excludeSet.has(k)) continue;
+      const key = k as keyof T;
+      if (Object.is(values[key], defaultValues[key])) out.push(k as keyof T & string);
+    }
+    return out;
+  }, [excludedHadOnRestore, values, defaultValues, excludeFields]);
+  fieldsNeedingReentryRef.current = fieldsNeedingReentry;
+
+  // F1 fix: notify registry subscribers when `fieldsNeedingReentry` changes
+  // so `useFormDraftStatus` siblings re-render. The existing notify effect
+  // only watches `lastSavedAt` and would miss reentry transitions in between
+  // saves (e.g., user fills the password but no save has fired yet).
+  useEffect(() => {
+    notifySubscribers(key);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, fieldsNeedingReentry]);
+
   return {
     values,
     set,
@@ -638,5 +768,6 @@ export function useFormDraft<T extends Record<string, unknown>>(
     submit,
     onConflictData,
     resolveConflict,
+    fieldsNeedingReentry,
   };
 }

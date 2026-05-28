@@ -49,6 +49,23 @@ export default function WizardPage() {
 
         <StepIndicator current={draft.values.step} />
 
+        {draft.fieldsNeedingReentry.includes('password') && (
+          <div
+            data-testid="reentry-banner"
+            style={{
+              background: '#fff7ed',
+              border: '1px solid #f59e0b',
+              borderRadius: 8,
+              padding: '10px 14px',
+              margin: '12px 0',
+              color: '#92400e',
+              fontSize: 13,
+            }}
+          >
+            보안을 위해 비밀번호를 다시 입력해주세요. (Storage에 저장되지 않습니다.)
+          </div>
+        )}
+
         <div className="card">
           <div className="card-header">
             <h2 className="card-title">

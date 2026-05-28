@@ -15,6 +15,7 @@ export function useFormDraftRHF<T extends FieldValues>(
   discard: ReturnType<typeof useFormDraft<T>>['discard'];
   onConflictData: ReturnType<typeof useFormDraft<T>>['onConflictData'];
   resolveConflict: ReturnType<typeof useFormDraft<T>>['resolveConflict'];
+  fieldsNeedingReentry: ReturnType<typeof useFormDraft<T>>['fieldsNeedingReentry'];
 } {
   // RHF returns undefined when no defaultValues were passed to useForm(). Fall
   // back to an empty object so set()/patch() spreads don't blow up downstream.
@@ -96,5 +97,6 @@ export function useFormDraftRHF<T extends FieldValues>(
     discard,
     onConflictData: draft.onConflictData,
     resolveConflict: draft.resolveConflict,
+    fieldsNeedingReentry: draft.fieldsNeedingReentry,
   };
 }

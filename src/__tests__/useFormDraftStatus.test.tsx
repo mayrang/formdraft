@@ -19,6 +19,7 @@ function makeEntry(overrides: Partial<RegistryEntry> = {}): RegistryEntry {
     pendingChangesRef: { current: false },
     errorRef: { current: null },
     lastSavedAtRef: { current: null },
+    fieldsNeedingReentryRef: { current: [] },
     ...overrides,
   };
 }
