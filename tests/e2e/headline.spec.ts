@@ -143,4 +143,29 @@ test.describe('formdraft headline scenarios', () => {
 
     await context.close();
   });
+
+  test('S8: reentry banner appears for excluded password after refresh', async ({ page }) => {
+    await freshPage(page);
+    await fillStep1(page, 'reentry@x.com', 'mypassword');
+    await page.locator('button:has-text("Next")').click();
+    await fillStep2(page, 'User', 'Some bio');
+    await page.waitForTimeout(300);
+
+    // No banner yet — we haven't refreshed, the form is in-session
+    await expect(page.locator('[data-testid="reentry-banner"]')).toHaveCount(0);
+
+    // Refresh: password is excluded from storage, so its value is gone
+    // but the rest of the wizard state survives. The banner should appear.
+    await page.reload();
+    await page.waitForSelector('input[placeholder="Your name"]');
+    await expect(page.locator('[data-testid="reentry-banner"]')).toBeVisible();
+    await expect(page.locator('input[placeholder="Your name"]')).toHaveValue('User');
+
+    // Go back to step 1 and re-enter the password — banner clears.
+    await page.locator('button:has-text("← Back")').click();
+    await expect(page.locator('input[type="email"]')).toHaveValue('reentry@x.com');
+    await expect(page.locator('input[type="password"]')).toHaveValue('');
+    await page.locator('input[type="password"]').fill('mypassword');
+    await expect(page.locator('[data-testid="reentry-banner"]')).toHaveCount(0);
+  });
 });

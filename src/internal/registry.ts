@@ -25,6 +25,7 @@ export type RegistryEntry<T = any> = {
   pendingChangesRef: { current: boolean };
   errorRef: { current: Error | null };
   lastSavedAtRef: { current: Date | null };
+  fieldsNeedingReentryRef: { current: ReadonlyArray<string> };
 };
 
 // Stack of registrations per key. Last-in is the "active" one (returned by

@@ -32,6 +32,7 @@ export function useFormDraftFormik<T extends FormikValues>(
   discard: ReturnType<typeof useFormDraft<T>>['discard'];
   onConflictData: ReturnType<typeof useFormDraft<T>>['onConflictData'];
   resolveConflict: ReturnType<typeof useFormDraft<T>>['resolveConflict'];
+  fieldsNeedingReentry: ReturnType<typeof useFormDraft<T>>['fieldsNeedingReentry'];
 } {
   const defaultValues = form.initialValues;
   const draft = useFormDraft<T>({
@@ -144,5 +145,6 @@ export function useFormDraftFormik<T extends FormikValues>(
     discard,
     onConflictData: draft.onConflictData,
     resolveConflict: draft.resolveConflict,
+    fieldsNeedingReentry: draft.fieldsNeedingReentry,
   };
 }

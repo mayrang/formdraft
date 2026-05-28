@@ -1,6 +1,6 @@
 {
   "name": "formdraft",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Production-grade form auto-save + offline survival for React. Zero runtime dependencies.",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",

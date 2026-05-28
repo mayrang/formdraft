@@ -3,11 +3,11 @@
 > Production-grade form auto-save + offline survival for React. Zero runtime dependencies.
 
 [![npm version](https://img.shields.io/npm/v/formdraft?label=npm&color=cb3837)](https://www.npmjs.com/package/formdraft)
-[![bundle size](https://img.shields.io/badge/size-5.4%20KB%20brotli-success)](#zero-runtime-dependencies)
+[![bundle size](https://img.shields.io/badge/size-5.7%20KB%20brotli-success)](#zero-runtime-dependencies)
 [![license](https://img.shields.io/npm/l/formdraft)](LICENSE)
 [![zero deps](https://img.shields.io/badge/runtime%20deps-0-success)](#zero-runtime-dependencies)
 
-> **v0.2.0** — 202 unit tests + 84 Playwright e2e tests (28 scenarios × Chromium / Firefox / WebKit). New in v0.2: Formik / TanStack Form adapters, `autoAdapter` (localStorage → IndexedDB), `getFormDraft` programmatic handle, `useFormDraftStatus` sibling reader, heartbeat detector, and field-level merge UI (`ConflictResolver` / `ConflictDialog` under `formdraft/ui`).
+> **v0.3.0** — 216 unit tests + 87 Playwright e2e tests (29 scenarios × Chromium / Firefox / WebKit). New in v0.3: `fieldsNeedingReentry` — surfaces sensitive fields (like `excludeFields: ['password']`) that were stripped from storage and need re-entry after refresh. v0.2: Formik / TanStack Form adapters, `autoAdapter`, `getFormDraft`, `useFormDraftStatus`, heartbeat detector, conflict merge UI.
 
 ![demo](docs/assets/demo.gif)
 
@@ -145,7 +145,7 @@ formdraft is that stack, packaged. With the 7 platform-quirk traps AI assistants
 
 | Library | Status | Persist | Restore | Server sync | Offline queue | Multi-tab | Status UI | IndexedDB | Bundle |
 |---|---|---|---|---|---|---|---|---|---|
-| **formdraft** | active | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | 5.4 KB |
+| **formdraft** | active | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | 5.8 KB |
 | react-hook-form-persist | dead 2022 | ✓ | ✓ | — | — | — | — | — | ~2 KB |
 | formik-persist | dead 2018 | ✓ | ✓ | — | — | — | — | — | ~2 KB |
 | react-autosave | partial | — | — | ✓ | — | — | — | — | ~3 KB |
@@ -290,6 +290,31 @@ await submit?.();
 
 Returns `undefined` when no instance with that key is currently mounted. The handle's getters always return the **current** state, not a snapshot from when you called `getFormDraft`. For reactive subscription inside a component, use `useFormDraftStatus(key)` instead.
 
+## Re-entry of excluded fields after restore
+
+`excludeFields: ['password']` keeps sensitive values out of storage, but the UX gap was: after refresh, the wizard restores at step 5 and the user clicks Submit with an empty password. They never see the field that's missing.
+
+`draft.fieldsNeedingReentry` (also on `useFormDraftStatus(key)` and `getFormDraft(key).getFieldsNeedingReentry()`) surfaces this list:
+
+```tsx
+const draft = useFormDraft({
+  defaultValues: { email: '', password: '', step: 1 },
+  excludeFields: ['password'],
+  // ...
+});
+
+return (
+  <>
+    {draft.fieldsNeedingReentry.includes('password') && (
+      <Banner>보안을 위해 비밀번호를 다시 입력해주세요.</Banner>
+    )}
+    {/* ... form */}
+  </>
+);
+```
+
+The list is populated only when the prior session actually had a non-default value for the excluded field (tracked via a `__excludedHad` flag in the stored record — key names only, never values). Auto-clears per-field when the user re-enters a non-default value; clears entirely on `discard()` / `submit()`. Pre-v0.3 stored records without the flag restore cleanly with an empty list (backward compatible).
+
 ## Multi-tab strategies
 
 | Strategy | What happens on remote change |
@@ -365,7 +390,7 @@ Diffing is shallow object-equality (`Object.is` per key) — sufficient for v0.2
 
 formdraft has **no** runtime dependencies. Only peer deps (which you'd install anyway): `react`, optionally one of `react-hook-form` / `formik` / `@tanstack/react-form`, optionally `zod`.
 
-Bundle target: **≤ 8 KB brotli** (enforced in CI; current main bundle is ~5.4 KB).
+Bundle target: **≤ 8 KB brotli** (enforced in CI; current main bundle is ~5.8 KB).
 
 ## Security model
 
@@ -445,9 +470,9 @@ A: No. formdraft uses BroadcastChannel, navigator.onLine, IndexedDB — all brow
 
 ## Status
 
-- **v0.2.0** on [npm](https://www.npmjs.com/package/formdraft)
-- 202 unit tests + 84 Playwright e2e (28 scenarios × Chromium / Firefox / WebKit)
-- **~5.42 KB brotli** (8 KB CI gate) — UI helpers ship as a separate `formdraft/ui` chunk
+- **v0.3.0** on [npm](https://www.npmjs.com/package/formdraft)
+- 216 unit tests + 87 Playwright e2e (29 scenarios × Chromium / Firefox / WebKit)
+- **~5.8 KB brotli** (8 KB CI gate) — UI helpers ship as a separate `formdraft/ui` chunk
 - React 18+; Browser support Chrome/Edge 88+, Firefox 78+, Safari 15.4+
 - Every adapter (RHF / Formik / TanStack Form) and every storage backend (localStorage / sessionStorage / IndexedDB / autoAdapter) is exercised end-to-end on all three engines
 - 0 runtime dependencies

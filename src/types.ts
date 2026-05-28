@@ -87,6 +87,19 @@ export type FormDraftResult<T> = {
   submit: <R>(handler: (values: T) => Promise<R>) => (e?: { preventDefault?: () => void }) => Promise<R | undefined>;
   onConflictData: T | null;
   resolveConflict: (choice: 'local' | 'remote' | T) => void;
+  /**
+   * Names of `excludeFields` whose pre-persist values were non-default but
+   * weren't restored (because they're excluded from storage by design).
+   * Populated only after a storage-driven restore. Auto-clears per-field as
+   * the user re-enters a non-default value, and on `discard()` / `submit()`.
+   *
+   * Use to prompt re-entry of sensitive fields after refresh:
+   *
+   *   {draft.fieldsNeedingReentry.includes('password') && (
+   *     <Banner>Re-enter your password to continue</Banner>
+   *   )}
+   */
+  fieldsNeedingReentry: ReadonlyArray<keyof T & string>;
 };
 
 export type BroadcastMessage<T = unknown> =
